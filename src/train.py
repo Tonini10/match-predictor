@@ -4,9 +4,9 @@ import joblib
 from src.preprocess import build_training_data, FEATURE_COLS
 
 
-def train(data_path='data/results.csv', model_path='model.pkl', n_estimators=100):
+def train(data_path='data/results.csv', model_path='model.pkl', n_estimators=100, n=5):
     df = pd.read_csv(data_path)
-    training_df = build_training_data(df)
+    training_df = build_training_data(df, n=n)
 
     X = training_df[FEATURE_COLS]
     y = training_df['result']
@@ -21,7 +21,7 @@ def train(data_path='data/results.csv', model_path='model.pkl', n_estimators=100
     accuracy = clf.score(X_test, y_test)
     print(f"Test accuracy: {accuracy:.3f}")
 
-    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS}, model_path)
+    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS, 'n': n}, model_path)
     print(f"Model saved to {model_path}")
     return clf, accuracy
 

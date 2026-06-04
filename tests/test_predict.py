@@ -27,7 +27,7 @@ def mock_model_path(tmp_path):
     y = ['H', 'D', 'A', 'H', 'D', 'A']
     clf.fit(X, y)
     path = str(tmp_path / 'model.pkl')
-    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS}, path)
+    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS, 'n': 5}, path)
     return path
 
 

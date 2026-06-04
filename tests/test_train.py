@@ -35,6 +35,7 @@ def test_train_artifact_contains_model_and_feature_cols(sample_csv, tmp_path):
     artifact = joblib.load(model_path)
     assert 'model' in artifact
     assert artifact['feature_cols'] == FEATURE_COLS
+    assert artifact['n'] == 5
 
 
 def test_train_model_has_predict_proba(sample_csv, tmp_path):

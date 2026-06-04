@@ -28,7 +28,7 @@ df = load_data()
 teams = sorted(set(df['home_team'].unique()) | set(df['away_team'].unique()))
 
 default_home = teams.index('Mexico') if 'Mexico' in teams else 0
-default_away = teams.index('Argentina') if 'Argentina' in teams else 1
+default_away = teams.index('Argentina') if 'Argentina' in teams else min(1, len(teams) - 1)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -47,7 +47,11 @@ if st.button("Predecir", type="primary"):
                     "La predicción puede ser imprecisa."
                 )
 
-        prediction = predict_match(home_team, away_team, df, MODEL_PATH)
+        try:
+            prediction = predict_match(home_team, away_team, df, MODEL_PATH)
+        except Exception as e:
+            st.error(f"Error al generar la predicción: {e}")
+            st.stop()
 
         st.subheader(f"Resultado más probable: **{prediction['result_label']}**")
 

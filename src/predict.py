@@ -1,3 +1,4 @@
+import functools
 import pandas as pd
 import joblib
 from src.preprocess import build_features_for_prediction, FEATURE_COLS
@@ -9,12 +10,20 @@ _RESULT_LABELS = {
 }
 
 
+@functools.lru_cache(maxsize=None)
+def _load_artifact(model_path):
+    return joblib.load(model_path)
+
+
 def predict_match(home_team, away_team, df, model_path='model.pkl'):
-    artifact = joblib.load(model_path)
+    artifact = _load_artifact(model_path)
     clf = artifact['model']
 
-    features = build_features_for_prediction(df, home_team, away_team)
-    X = pd.DataFrame([features])[FEATURE_COLS]
+    n = artifact.get('n', 5)  # default 5 for backward compat
+    feature_cols = artifact['feature_cols']
+
+    features = build_features_for_prediction(df, home_team, away_team, n=n)
+    X = pd.DataFrame([features])[feature_cols]
 
     predicted = clf.predict(X)[0]
     probas = clf.predict_proba(X)[0]
