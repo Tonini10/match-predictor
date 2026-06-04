@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+.coverage
+venv/
+.venv/
+.vscode/
+.idea/
+*.pkl
+*.joblib
+.streamlit/
+data/results.csv
