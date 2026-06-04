@@ -15,14 +15,14 @@ def _load_artifact(model_path):
     return joblib.load(model_path)
 
 
-def predict_match(home_team, away_team, df, model_path='model.pkl'):
+def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=False):
     artifact = _load_artifact(model_path)
     clf = artifact['model']
 
     n = artifact.get('n', 5)  # default 5 for backward compat
     feature_cols = artifact['feature_cols']
 
-    features = build_features_for_prediction(df, home_team, away_team, n=n)
+    features = build_features_for_prediction(df, home_team, away_team, is_neutral=is_neutral, n=n)
     X = pd.DataFrame([features])[feature_cols]
 
     predicted = clf.predict(X)[0]
