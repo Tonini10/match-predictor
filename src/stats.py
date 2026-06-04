@@ -5,6 +5,7 @@ def _all_matches_for_team(df, team):
     """Return unified DataFrame of all matches for a team with goals_for/against and result."""
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
+    df = df.dropna(subset=['home_score', 'away_score'])  # exclude future/unplayed matches
     df = df.sort_values('date').reset_index(drop=True)
 
     home = df[df['home_team'] == team].copy()
@@ -69,8 +70,9 @@ def get_radar_stats(df, home_team, away_team):
         return round(h / denom, 3), round(a / denom, 3)
 
     def norm_lower(h, a):
-        max_v = max(h, a, 1e-9)
-        return round(1 - h / max_v, 3), round(1 - a / max_v, 3)
+        # Use global average (1.5 goals/game) as anchor so similar teams don't collapse to 0
+        anchor = max(h, a, 1.5)
+        return round(max(0.0, 1 - h / anchor), 3), round(max(0.0, 1 - a / anchor), 3)
 
     home_form = sum(1 for r in hs['form'] if r == 'W') / max(len(hs['form']), 1)
     away_form = sum(1 for r in as_['form'] if r == 'W') / max(len(as_['form']), 1)
@@ -93,6 +95,7 @@ def get_radar_stats(df, home_team, away_team):
 def get_head_to_head(df, home_team, away_team, last_n=5):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
+    df = df.dropna(subset=['home_score', 'away_score'])
     df = df.sort_values('date')
 
     h2h = df[
@@ -157,6 +160,7 @@ def get_head_to_head(df, home_team, away_team, last_n=5):
 def get_recent_matches(df, team, n=10):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
+    df = df.dropna(subset=['home_score', 'away_score'])
     df = df.sort_values('date')
 
     home = df[df['home_team'] == team].copy()
