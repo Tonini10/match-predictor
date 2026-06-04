@@ -41,16 +41,19 @@ def build_training_data(df, n=5):
     return df[FEATURE_COLS + ['result']].copy()
 
 
-def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=5):
+def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=5, before_date=None):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
+
+    if before_date is not None:
+        df = df[df['date'] < pd.Timestamp(before_date)]
 
     hm = df[df['home_team'] == home_team].tail(n)
     am = df[df['away_team'] == away_team].tail(n)
 
     def safe_mean(series):
-        return float(series.mean()) if len(series) > 0 else 0.0
+        return 0.0 if series.isna().all() else float(series.mean())
 
     return {
         'home_avg_goals_scored':   safe_mean(hm['home_score']),

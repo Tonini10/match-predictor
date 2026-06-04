@@ -19,7 +19,7 @@ def sample_df():
 
 def test_build_training_data_returns_expected_columns(sample_df):
     result = build_training_data(sample_df)
-    assert set(FEATURE_COLS + ['result']).issubset(set(result.columns))
+    assert set(FEATURE_COLS + ['result']) == set(result.columns)
 
 
 def test_build_training_data_length_matches_input(sample_df):
@@ -68,3 +68,27 @@ def test_build_features_for_prediction_unknown_team_returns_zeros(sample_df):
     features = build_features_for_prediction(sample_df, 'Unknown', 'Brazil')
     assert features['home_avg_goals_scored'] == 0.0
     assert features['home_win_rate'] == 0.0
+
+
+def test_build_features_for_prediction_unknown_away_team_returns_zeros(sample_df):
+    features = build_features_for_prediction(sample_df, 'Brazil', 'Unknown')
+    assert features['away_avg_goals_scored'] == 0.0
+    assert features['away_win_rate'] == 0.0
+
+
+def test_build_training_data_away_stats_rolling_correctness():
+    # Two Germany-as-away matches: row 1's away_avg_goals_scored must equal row 0's away_score
+    df = pd.DataFrame({
+        'date': ['2020-01-01', '2020-02-01'],
+        'home_team': ['Brazil', 'France'],
+        'away_team': ['Germany', 'Germany'],
+        'home_score': [3, 2],
+        'away_score': [1, 2],
+        'neutral': [False, False],
+        'tournament': ['Friendly', 'Friendly'],
+    })
+    result = build_training_data(df)
+    # Row 0 is Germany's first away match: no prior data, stat should be 0
+    assert result.iloc[0]['away_avg_goals_scored'] == 0.0
+    # Row 1 uses row 0's away_score (1) as the rolling prior
+    assert result.iloc[1]['away_avg_goals_scored'] == pytest.approx(1.0)
