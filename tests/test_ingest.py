@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
-from src.ingest import normalize_csv
+from unittest.mock import patch
+from src.ingest import normalize_csv, download_csv, build_clubs_dataset, combine_datasets
 
 
 def _raw(date='01/08/2024', home='Arsenal', away='Chelsea', fthg=2, ftag=1, ftr='H'):
@@ -73,11 +74,6 @@ def test_normalize_csv_infers_away_win():
 def test_normalize_csv_neutral_is_false():
     result = normalize_csv(_raw(), 'Bundesliga')
     assert result['neutral'].iloc[0] is False
-
-
-from unittest.mock import patch
-from src.ingest import download_csv, build_clubs_dataset, combine_datasets
-import os
 
 
 def test_download_csv_returns_none_on_http_error(tmp_path):
