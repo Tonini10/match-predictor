@@ -8,14 +8,15 @@ from src.stats import (
     get_radar_stats,
     get_head_to_head,
     get_recent_matches,
+    get_league_stats,
 )
 
-DATA_PATH = 'data/results.csv'
+DATA_PATH = 'data/all_matches.csv' if os.path.exists('data/all_matches.csv') else 'data/results.csv'
 MODEL_PATH = 'model.pkl'
 
 st.set_page_config(
-    page_title="Football Predictor ⚽",
-    page_icon="⚽",
+    page_title="Football Predictor",
+    page_icon=":soccer:",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -157,7 +158,7 @@ hr { border-color: #1e2130 !important; margin: 1rem 0 !important; }
 
 # ── Guards ─────────────────────────────────────────────────────────────────
 if not os.path.exists(DATA_PATH):
-    st.error("📂 Dataset no encontrado. Coloca `results.csv` en la carpeta `data/`.")
+    st.error("Dataset not found. Place `results.csv` in the `data/` folder.")
     st.stop()
 
 
@@ -169,22 +170,72 @@ def load_data():
 df = load_data()
 
 if not os.path.exists(MODEL_PATH):
-    with st.spinner("⚙️ Entrenando modelo por primera vez... (~30 segundos)"):
+    with st.spinner("Training model for the first time... (~30 seconds)"):
         from src.train import train
         train()
 
 # ── Header ─────────────────────────────────────────────────────────────────
-st.markdown("# ⚽ Football Match Predictor")
-st.caption("Modelo Random Forest  ·  49 000+ partidos internacionales  ·  1872–2026")
+st.markdown("# Football Match Predictor")
+caption_text = "XGBoost model  ·  All competitions  ·  1872–2026"
+if DATA_PATH == 'data/results.csv':
+    caption_text += "  ·  *Run `python -m src.ingest` to add club leagues*"
+st.caption(caption_text)
 st.markdown("<div style='margin-bottom:1.2rem'></div>", unsafe_allow_html=True)
 
-teams = sorted(set(df['home_team'].unique()) | set(df['away_team'].unique()))
+# ── Competition selector ────────────────────────────────────────────────────
+WC_LABEL = 'FIFA World Cup'
+if 'league' in df.columns:
+    league_list = sorted([l for l in df['league'].dropna().unique() if l != WC_LABEL])
+    has_wc = WC_LABEL in df['league'].values
+    competition_type_map = (
+        df.groupby('league')['competition_type'].first().to_dict()
+        if 'competition_type' in df.columns else {}
+    )
+else:
+    league_list = []
+    has_wc = False
+    competition_type_map = {}
+
+if 'selected_league' not in st.session_state:
+    st.session_state.selected_league = 'All'
+
+st.markdown(
+    '<div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;'
+    'letter-spacing:0.8px;color:#444;margin-bottom:8px">Competition</div>',
+    unsafe_allow_html=True,
+)
+
+if has_wc:
+    if st.button("World Cup — FIFA World Cup, all editions", key='wc_btn', use_container_width=True):
+        st.session_state.selected_league = WC_LABEL
+        st.rerun()
+
+other_options = ['All'] + league_list
+other_idx = (other_options.index(st.session_state.selected_league)
+             if st.session_state.selected_league in other_options else 0)
+chosen = st.selectbox("Other competitions", other_options, index=other_idx, label_visibility='collapsed')
+if chosen != st.session_state.selected_league:
+    st.session_state.selected_league = chosen
+    st.rerun()
+
+selected_league = st.session_state.selected_league
+
+if selected_league == 'All' or 'league' not in df.columns:
+    filtered_df = df
+    league_param = None
+    comp_type_param = None
+else:
+    filtered_df = df[df['league'] == selected_league]
+    league_param = selected_league
+    comp_type_param = competition_type_map.get(selected_league, 'club')
+
+teams = sorted(set(filtered_df['home_team'].unique()) | set(filtered_df['away_team'].unique()))
 default_home = teams.index('Mexico') if 'Mexico' in teams else 0
 default_away = teams.index('Argentina') if 'Argentina' in teams else min(1, len(teams) - 1)
 
 col_h, col_vs, col_a = st.columns([5, 1, 5])
 with col_h:
-    home_team = st.selectbox("🏠 Equipo Local", teams, index=default_home)
+    home_team = st.selectbox("Home", teams, index=default_home)
 with col_vs:
     st.markdown(
         "<div style='display:flex;align-items:center;justify-content:center;"
@@ -193,17 +244,17 @@ with col_vs:
         unsafe_allow_html=True,
     )
 with col_a:
-    away_team = st.selectbox("✈️ Equipo Visitante", teams, index=default_away)
+    away_team = st.selectbox("Away", teams, index=default_away)
 
 opt_col, btn_col = st.columns([1, 3])
 with opt_col:
     is_neutral = st.checkbox(
-        "🌍 Cancha neutral",
+        "Neutral venue",
         value=True,
-        help="Actívalo para Mundial, Copa América u otros torneos en sede neutra",
+        help="Enable for World Cup, Copa America, or other neutral-venue tournaments",
     )
 with btn_col:
-    predict_btn = st.button("🎯  Predecir Partido", type="primary", use_container_width=True)
+    predict_btn = st.button("Predict Match", type="primary", use_container_width=True)
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
 _LAYOUT = dict(
@@ -251,17 +302,22 @@ def _match_row(date, label, score, tourn, color):
 # ── Main prediction block ───────────────────────────────────────────────────
 if predict_btn:
     if home_team == away_team:
-        st.error("⚠️ Selecciona dos equipos diferentes.")
+        st.error("Please select two different teams.")
         st.stop()
 
     for team in [home_team, away_team]:
         if get_team_match_count(df, team) < 5:
-            st.warning(f"⚠️ {team} tiene menos de 5 partidos en el historial.")
+            st.warning(f"{team} has fewer than 5 matches in the dataset.")
 
     try:
-        prediction = predict_match(home_team, away_team, df, MODEL_PATH, is_neutral=is_neutral)
+        prediction = predict_match(
+            home_team, away_team, df, MODEL_PATH,
+            is_neutral=is_neutral,
+            league=league_param,
+            competition_type=comp_type_param,
+        )
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"Error: {e}")
         st.stop()
 
     probs      = prediction['probabilities']
@@ -275,8 +331,8 @@ if predict_btn:
     radar      = get_radar_stats(df, home_team, away_team)
     h2h        = get_head_to_head(df, home_team, away_team)
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["🎯  Predicción", "📊  Estadísticas", "⚔️  Head-to-Head", "📋  Historial"]
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Prediction", "Statistics", "Head-to-Head", "History", "League"]
     )
 
     # ═══════════════ TAB 1 · PREDICCIÓN ════════════════════════════════════
@@ -284,28 +340,28 @@ if predict_btn:
         neutral_tag = (
             ' &nbsp;<span style="background:#1e2130;color:#555;font-size:11px;'
             'padding:3px 10px;border-radius:20px;font-weight:600">'
-            '🌍 Cancha neutral</span>' if is_neutral else ''
+            'Neutral venue</span>' if is_neutral else ''
         )
         st.markdown(_card(
             f'<div style="text-align:center">'
             f'<div style="font-size:2.4rem;font-weight:900;color:{res_color};'
             f'letter-spacing:-0.5px;line-height:1.1">{res_label.upper()}</div>'
             f'<div style="margin-top:10px;font-size:0.85rem;color:#555;font-weight:600">'
-            f'CONFIANZA &nbsp;'
+            f'CONFIDENCE &nbsp;'
             f'<span style="color:#e8eaf0;font-size:1.1rem;font-weight:800">{confidence:.1f}%</span>'
             f'{neutral_tag}</div></div>',
             border=res_color,
         ), unsafe_allow_html=True)
 
         m1, m2, m3 = st.columns(3)
-        m1.metric(f"🏠 {home_team}", f"{probs.get('H',0)*100:.1f}%")
-        m2.metric("🤝 Empate",       f"{probs.get('D',0)*100:.1f}%")
-        m3.metric(f"✈️ {away_team}", f"{probs.get('A',0)*100:.1f}%")
+        m1.metric(f"Home — {home_team}", f"{probs.get('H',0)*100:.1f}%")
+        m2.metric("Draw",                f"{probs.get('D',0)*100:.1f}%")
+        m3.metric(f"Away — {away_team}", f"{probs.get('A',0)*100:.1f}%")
 
         h_v, d_v, a_v = probs.get('H',0), probs.get('D',0), probs.get('A',0)
         fig_prob = go.Figure(go.Bar(
             x=[h_v, d_v, a_v],
-            y=[f"🏠 {home_team}", "🤝 Empate", f"✈️ {away_team}"],
+            y=[f"Home — {home_team}", "Draw", f"Away — {away_team}"],
             orientation='h',
             text=[f"<b>{v*100:.1f}%</b>" for v in [h_v, d_v, a_v]],
             textposition='inside',
@@ -322,30 +378,30 @@ if predict_btn:
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
-        for col, team, stats, flag in [
-            (c1, home_team, home_stats, "🏠"),
-            (c2, away_team, away_stats, "✈️"),
+        for col, team, stats in [
+            (c1, home_team, home_stats),
+            (c2, away_team, away_stats),
         ]:
             with col:
                 badges = " ".join(_badge(r) for r in stats['form'][-5:]) or "—"
                 st.markdown(_card(
                     f'<div style="font-size:1rem;font-weight:700;color:#e8eaf0;margin-bottom:14px">'
-                    f'{flag} {team}</div>'
+                    f'{team}</div>'
                     f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
                     f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">⚽ Goles/PJ</div>'
+                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Goals / Game</div>'
                     f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["goals_scored_per_game"]}</div></div>'
                     f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">🛡️ Recibidos/PJ</div>'
+                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Conceded / Game</div>'
                     f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["goals_conceded_per_game"]}</div></div>'
                     f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">🏆 Victorias</div>'
+                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Win Rate</div>'
                     f'<div style="font-size:1.4rem;font-weight:800;color:#00d4aa">{stats["win_rate"]*100:.0f}%</div></div>'
                     f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">📊 Partidos</div>'
+                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Matches</div>'
                     f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["total_matches"]}</div></div>'
                     f'</div>'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">FORMA RECIENTE</div>'
+                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">RECENT FORM</div>'
                     f'{badges}',
                 ), unsafe_allow_html=True)
 
@@ -377,16 +433,16 @@ if predict_btn:
         )
         st.plotly_chart(fig_radar, use_container_width=True)
 
-        st.markdown("### 📋 Comparación de métricas")
+        st.markdown("### Metric Comparison")
         rows = [
-            ("⚽ Goles anotados / PJ",   home_stats['goals_scored_per_game'],          away_stats['goals_scored_per_game'],          True),
-            ("🛡️ Goles recibidos / PJ",  home_stats['goals_conceded_per_game'],        away_stats['goals_conceded_per_game'],        False),
-            ("🏆 % Victorias",           f"{home_stats['win_rate']*100:.1f}%",         f"{away_stats['win_rate']*100:.1f}%",         True),
-            ("🤝 % Empates",             f"{home_stats['draw_rate']*100:.1f}%",        f"{away_stats['draw_rate']*100:.1f}%",        None),
-            ("❌ % Derrotas",            f"{home_stats['loss_rate']*100:.1f}%",        f"{away_stats['loss_rate']*100:.1f}%",        False),
-            ("⚡ Partidos con gol",      f"{home_stats['scoring_rate']*100:.1f}%",     f"{away_stats['scoring_rate']*100:.1f}%",     True),
-            ("🔒 Porterías a cero",      f"{home_stats['clean_sheet_rate']*100:.1f}%", f"{away_stats['clean_sheet_rate']*100:.1f}%", True),
-            ("📊 Total partidos",        home_stats['total_matches'],                  away_stats['total_matches'],                  None),
+            ("Goals scored / Game",   home_stats['goals_scored_per_game'],          away_stats['goals_scored_per_game'],          True),
+            ("Goals conceded / Game", home_stats['goals_conceded_per_game'],        away_stats['goals_conceded_per_game'],        False),
+            ("Win rate",              f"{home_stats['win_rate']*100:.1f}%",         f"{away_stats['win_rate']*100:.1f}%",         True),
+            ("Draw rate",             f"{home_stats['draw_rate']*100:.1f}%",        f"{away_stats['draw_rate']*100:.1f}%",        None),
+            ("Loss rate",             f"{home_stats['loss_rate']*100:.1f}%",        f"{away_stats['loss_rate']*100:.1f}%",        False),
+            ("Scoring rate",          f"{home_stats['scoring_rate']*100:.1f}%",     f"{away_stats['scoring_rate']*100:.1f}%",     True),
+            ("Clean sheet rate",      f"{home_stats['clean_sheet_rate']*100:.1f}%", f"{away_stats['clean_sheet_rate']*100:.1f}%", True),
+            ("Total matches",         home_stats['total_matches'],                  away_stats['total_matches'],                  None),
         ]
         table = '<div style="background:#13161d;border:1px solid #1e2130;border-radius:14px;overflow:hidden">'
         for i, (name, hv, av, hib) in enumerate(rows):
@@ -415,7 +471,7 @@ if predict_btn:
         st.markdown(table, unsafe_allow_html=True)
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-        st.markdown("### 📅 Forma — últimos 10 partidos")
+        st.markdown("### Recent Form — last 10 matches")
         fc1, fc2 = st.columns(2)
         for col, team, stats in [(fc1, home_team, home_stats), (fc2, away_team, away_stats)]:
             with col:
@@ -433,17 +489,17 @@ if predict_btn:
     with tab3:
         total_h2h = h2h['home_wins'] + h2h['draws'] + h2h['away_wins']
         if total_h2h == 0:
-            st.info(f"ℹ️ No hay enfrentamientos directos entre **{home_team}** y **{away_team}**.")
+            st.info(f"No head-to-head matches found between **{home_team}** and **{away_team}**.")
         else:
             c1, c2, c3 = st.columns(3)
-            c1.metric(f"🏆 {home_team}", h2h['home_wins'])
-            c2.metric("🤝 Empates",      h2h['draws'])
-            c3.metric(f"🏆 {away_team}", h2h['away_wins'])
+            c1.metric(f"{home_team}", h2h['home_wins'])
+            c2.metric("Draws",         h2h['draws'])
+            c3.metric(f"{away_team}", h2h['away_wins'])
 
             left, right = st.columns(2)
             with left:
                 fig_donut = go.Figure(go.Pie(
-                    labels=[home_team, "Empate", away_team],
+                    labels=[home_team, "Draw", away_team],
                     values=[h2h['home_wins'], h2h['draws'], h2h['away_wins']],
                     hole=0.62,
                     marker=dict(colors=['#00d4aa','#f59e0b','#f43f5e'],
@@ -454,7 +510,7 @@ if predict_btn:
                 ))
                 fig_donut.update_layout(
                     **_LAYOUT, height=310, showlegend=False,
-                    title=dict(text="<b>Distribución histórica</b>", x=0.5,
+                    title=dict(text="<b>Historical distribution</b>", x=0.5,
                                font=dict(size=13, color='#555')),
                 )
                 st.plotly_chart(fig_donut, use_container_width=True)
@@ -462,9 +518,9 @@ if predict_btn:
             with right:
                 st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
                 gc1, gc2, gc3 = st.columns(3)
-                gc1.metric(f"⚽ {home_team}", int(h2h['home_goals_total']))
-                gc2.metric("📊 Goles/PJ",    h2h['avg_goals_per_game'])
-                gc3.metric(f"⚽ {away_team}", int(h2h['away_goals_total']))
+                gc1.metric(f"{home_team}", int(h2h['home_goals_total']))
+                gc2.metric("Goals / Game",   h2h['avg_goals_per_game'])
+                gc3.metric(f"{away_team}", int(h2h['away_goals_total']))
 
                 if h2h['last_matches']:
                     chron = list(reversed(h2h['last_matches']))
@@ -478,7 +534,7 @@ if predict_btn:
                                           marker=dict(color='#f43f5e', line=dict(width=0))))
                     fig_g.update_layout(
                         **_LAYOUT, barmode='group', height=250,
-                        title=dict(text="<b>Goles por partido</b>", x=0.5,
+                        title=dict(text="<b>Goals per match</b>", x=0.5,
                                    font=dict(size=13, color='#555')),
                         legend=dict(orientation='h', y=1.15, font=dict(size=11)),
                         xaxis=dict(tickfont=dict(size=10)),
@@ -487,7 +543,7 @@ if predict_btn:
                     st.plotly_chart(fig_g, use_container_width=True)
 
             if h2h['last_matches']:
-                st.markdown("### 📋 Últimos enfrentamientos")
+                st.markdown("### Last matches")
                 for m in h2h['last_matches']:
                     ht, at = m['home_team'], m['away_team']
                     hs, as_ = m['home_score'], m['away_score']
@@ -511,29 +567,29 @@ if predict_btn:
         recent = get_recent_matches(df, sel, n=None if n_opt=='Todos' else int(n_opt))
 
         if len(recent) == 0:
-            st.info("ℹ️ Sin partidos registrados.")
+            st.info("No matches found.")
         else:
             wins_h  = int((recent['result']=='W').sum())
             draws_h = int((recent['result']=='D').sum())
             loss_h  = int((recent['result']=='L').sum())
             sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-            sc1.metric("🏆 Victorias",       wins_h)
-            sc2.metric("🤝 Empates",         draws_h)
-            sc3.metric("❌ Derrotas",        loss_h)
-            sc4.metric("⚽ Goles a favor",   int(recent['goals_for'].sum()))
-            sc5.metric("🛡️ Goles en contra", int(recent['goals_against'].sum()))
+            sc1.metric("Wins",            wins_h)
+            sc2.metric("Draws",           draws_h)
+            sc3.metric("Losses",          loss_h)
+            sc4.metric("Goals For",       int(recent['goals_for'].sum()))
+            sc5.metric("Goals Against",   int(recent['goals_against'].sum()))
 
             asc = recent.sort_values('date')
             fig_tl = go.Figure()
             fig_tl.add_trace(go.Scatter(
-                x=asc['date'], y=asc['goals_for'], name='Anotados',
+                x=asc['date'], y=asc['goals_for'], name='Scored',
                 line=dict(color='#00d4aa', width=2.5),
                 mode='lines+markers',
                 marker=dict(size=7, color='#00d4aa', line=dict(width=2, color='#0a0c10')),
                 fill='tozeroy', fillcolor='rgba(0,212,170,0.06)',
             ))
             fig_tl.add_trace(go.Scatter(
-                x=asc['date'], y=asc['goals_against'], name='Recibidos',
+                x=asc['date'], y=asc['goals_against'], name='Conceded',
                 line=dict(color='#f43f5e', width=2.5),
                 mode='lines+markers',
                 marker=dict(size=7, color='#f43f5e', line=dict(width=2, color='#0a0c10')),
@@ -541,19 +597,19 @@ if predict_btn:
             ))
             fig_tl.update_layout(
                 **_LAYOUT, height=290,
-                xaxis_title=None, yaxis_title="Goles",
+                xaxis_title=None, yaxis_title="Goals",
                 legend=dict(orientation='h', y=1.12, font=dict(size=12)),
-                title=dict(text=f"<b>Evolución de goles — {sel}</b>", x=0.5,
+                title=dict(text=f"<b>Goal trend — {sel}</b>", x=0.5,
                            font=dict(size=13, color='#555')),
                 yaxis=dict(gridcolor='#1e2130'),
                 xaxis=dict(gridcolor='#1e2130'),
             )
             st.plotly_chart(fig_tl, use_container_width=True)
 
-            st.markdown("### 📋 Partidos")
+            st.markdown("### Matches")
             for _, row in recent.iterrows():
                 color   = _RC[row['result']]
-                res_txt = {'W':'Victoria','D':'Empate','L':'Derrota'}[row['result']]
+                res_txt = {'W':'Win','D':'Draw','L':'Loss'}[row['result']]
                 gf, ga  = int(row['goals_for']), int(row['goals_against'])
                 st.markdown(
                     _match_row(
@@ -566,3 +622,29 @@ if predict_btn:
                     ),
                     unsafe_allow_html=True,
                 )
+
+    # ═══════════════ TAB 5 · LEAGUE ════════════════════════════════════════
+    with tab5:
+        if league_param is None:
+            st.info("Select a specific competition above to see league statistics.")
+        else:
+            st.markdown(f"### {league_param}")
+            lc1, lc2 = st.columns(2)
+            for col, team in [(lc1, home_team), (lc2, away_team)]:
+                with col:
+                    lstats = get_league_stats(df, team, league_param)
+                    st.markdown(f"**{team}**")
+                    if lstats['total_matches'] == 0:
+                        st.caption(f"No data for {team} in {league_param}.")
+                    else:
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("Matches", lstats['total_matches'])
+                        m2.metric("Win Rate", f"{lstats['win_rate']*100:.0f}%")
+                        m3.metric("Goals / Game", lstats['goals_scored_per_game'])
+                        badges = " ".join(_badge(r) for r in lstats['form'][-5:]) or "—"
+                        st.markdown(
+                            f'<div style="font-size:0.62rem;color:#444;font-weight:700;'
+                            f'text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px">RECENT FORM</div>'
+                            f'{badges}',
+                            unsafe_allow_html=True,
+                        )
