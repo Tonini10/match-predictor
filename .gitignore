@@ -9,3 +9,6 @@ venv/
 .idea/
 *.pkl
 *.joblib
+data/raw/
+data/clubs.csv
+data/all_matches.csv
