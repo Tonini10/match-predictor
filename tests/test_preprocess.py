@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from sklearn.preprocessing import LabelEncoder
 from src.preprocess import build_training_data, build_features_for_prediction, FEATURE_COLS
 
 
@@ -17,50 +18,101 @@ def sample_df():
     })
 
 
-def test_build_training_data_returns_expected_columns(sample_df):
+@pytest.fixture
+def sample_df_with_leagues():
+    return pd.DataFrame({
+        'date': ['2020-01-01', '2020-02-01', '2020-03-01', '2020-04-01'],
+        'home_team': ['Arsenal', 'Arsenal', 'Barcelona', 'Arsenal'],
+        'away_team': ['Chelsea', 'Liverpool', 'Madrid', 'Man City'],
+        'home_score': [2, 1, 3, 0],
+        'away_score': [1, 2, 0, 1],
+        'neutral': [False] * 4,
+        'tournament': ['Premier League', 'Premier League', 'La Liga', 'Premier League'],
+        'league': ['Premier League', 'Premier League', 'La Liga', 'Premier League'],
+        'competition_type': ['club', 'club', 'club', 'club'],
+    })
+
+
+def test_build_training_data_returns_tuple(sample_df):
     result = build_training_data(sample_df)
-    assert set(FEATURE_COLS + ['result']) == set(result.columns)
+    assert isinstance(result, tuple) and len(result) == 2
+
+
+def test_build_training_data_returns_expected_columns(sample_df):
+    df, le = build_training_data(sample_df)
+    assert set(FEATURE_COLS + ['result']) == set(df.columns)
+
+
+def test_build_training_data_returns_label_encoder(sample_df):
+    df, le = build_training_data(sample_df)
+    assert isinstance(le, LabelEncoder)
 
 
 def test_build_training_data_length_matches_input(sample_df):
-    result = build_training_data(sample_df)
-    assert len(result) == len(sample_df)
+    df, _ = build_training_data(sample_df)
+    assert len(df) == len(sample_df)
 
 
 def test_build_training_data_result_home_win(sample_df):
-    result = build_training_data(sample_df)
-    assert result.iloc[0]['result'] == 'H'  # Brazil 3-1 Germany
+    df, _ = build_training_data(sample_df)
+    assert df.iloc[0]['result'] == 'H'
 
 
 def test_build_training_data_result_draw(sample_df):
-    result = build_training_data(sample_df)
-    assert result.iloc[1]['result'] == 'D'  # Brazil 2-2 France
+    df, _ = build_training_data(sample_df)
+    assert df.iloc[1]['result'] == 'D'
 
 
 def test_build_training_data_result_away_win(sample_df):
-    result = build_training_data(sample_df)
-    assert result.iloc[3]['result'] == 'A'  # Argentina 0-1 Brazil
+    df, _ = build_training_data(sample_df)
+    assert df.iloc[3]['result'] == 'A'
 
 
 def test_build_training_data_first_match_stats_are_zero(sample_df):
-    result = build_training_data(sample_df)
-    assert result.iloc[0]['home_avg_goals_scored'] == 0.0
-    assert result.iloc[0]['home_win_rate'] == 0.0
+    df, _ = build_training_data(sample_df)
+    assert df.iloc[0]['home_avg_goals_scored'] == 0.0
+    assert df.iloc[0]['home_win_rate'] == 0.0
 
 
 def test_build_training_data_second_match_uses_first(sample_df):
-    # Row 1 is Brazil's second home match; prior home match (row 0) scored 3
-    result = build_training_data(sample_df)
-    assert result.iloc[1]['home_avg_goals_scored'] == pytest.approx(3.0)
+    df, _ = build_training_data(sample_df)
+    assert df.iloc[1]['home_avg_goals_scored'] == pytest.approx(3.0)
+
+
+def test_build_training_data_has_new_feature_cols(sample_df):
+    df, _ = build_training_data(sample_df)
+    assert 'league_encoded' in df.columns
+    assert 'is_international' in df.columns
+    assert 'home_league_win_rate' in df.columns
+    assert 'away_league_win_rate' in df.columns
+
+
+def test_build_training_data_backward_compat_no_league_col(sample_df):
+    df, le = build_training_data(sample_df)
+    assert len(df) == len(sample_df)
+    assert 'league_encoded' in df.columns
+
+
+def test_build_training_data_league_win_rate_per_league(sample_df_with_leagues):
+    df, _ = build_training_data(sample_df_with_leagues)
+    assert df.iloc[0]['home_league_win_rate'] == 0.0
+    assert df.iloc[1]['home_league_win_rate'] == pytest.approx(1.0)
+
+
+def test_build_training_data_is_international_flag(sample_df_with_leagues):
+    df, _ = build_training_data(sample_df_with_leagues)
+    assert (df['is_international'] == 0).all()
 
 
 def test_build_features_for_prediction_returns_all_keys(sample_df):
-    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany')
+    df, le = build_training_data(sample_df)
+    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', label_encoder=le)
     assert set(features.keys()) == set(FEATURE_COLS)
 
 
 def test_build_features_for_prediction_neutral_flag(sample_df):
-    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', is_neutral=True)
+    df, le = build_training_data(sample_df)
+    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', is_neutral=True, label_encoder=le)
     assert features['home_is_neutral'] == 1
 
 
@@ -70,14 +122,24 @@ def test_build_features_for_prediction_unknown_team_returns_zeros(sample_df):
     assert features['home_win_rate'] == 0.0
 
 
-def test_build_features_for_prediction_unknown_away_team_returns_zeros(sample_df):
-    features = build_features_for_prediction(sample_df, 'Brazil', 'Unknown')
-    assert features['away_avg_goals_scored'] == 0.0
-    assert features['away_win_rate'] == 0.0
+def test_build_features_for_prediction_league_encoded_zero_without_encoder(sample_df):
+    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', league='Friendly')
+    assert features['league_encoded'] == 0
+
+
+def test_build_features_for_prediction_is_international_from_param(sample_df):
+    features = build_features_for_prediction(
+        sample_df, 'Brazil', 'Germany', competition_type='international'
+    )
+    assert features['is_international'] == 1
+
+    features_club = build_features_for_prediction(
+        sample_df, 'Brazil', 'Germany', competition_type='club'
+    )
+    assert features_club['is_international'] == 0
 
 
 def test_build_training_data_away_stats_rolling_correctness():
-    # Two Germany-as-away matches: row 1's away_avg_goals_scored must equal row 0's away_score
     df = pd.DataFrame({
         'date': ['2020-01-01', '2020-02-01'],
         'home_team': ['Brazil', 'France'],
@@ -87,8 +149,6 @@ def test_build_training_data_away_stats_rolling_correctness():
         'neutral': [False, False],
         'tournament': ['Friendly', 'Friendly'],
     })
-    result = build_training_data(df)
-    # Row 0 is Germany's first away match: no prior data, stat should be 0
+    result, _ = build_training_data(df)
     assert result.iloc[0]['away_avg_goals_scored'] == 0.0
-    # Row 1 uses row 0's away_score (1) as the rolling prior
     assert result.iloc[1]['away_avg_goals_scored'] == pytest.approx(1.0)
