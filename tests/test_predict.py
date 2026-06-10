@@ -1,9 +1,35 @@
 import pandas as pd
 import joblib
 import pytest
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.preprocessing import LabelEncoder
 from src.predict import predict_match, get_team_match_count
 from src.preprocess import FEATURE_COLS
+
+
+class XGBClassifierWrapper:
+    """Wrapper around XGBClassifier that handles string labels"""
+    def __init__(self, base_clf, label_encoder):
+        self.base_clf = base_clf
+        self.label_encoder = label_encoder
+        self.classes_ = label_encoder.classes_
+
+    def predict(self, X):
+        return self.label_encoder.inverse_transform(self.base_clf.predict(X))
+
+    def predict_proba(self, X):
+        return self.base_clf.predict_proba(X)
+
+    def __getstate__(self):
+        return {'base_clf': self.base_clf, 'label_encoder': self.label_encoder, 'classes_': self.classes_}
+
+    def __setstate__(self, state):
+        self.base_clf = state['base_clf']
+        self.label_encoder = state['label_encoder']
+        self.classes_ = state['classes_']
+
+    def __getattr__(self, name):
+        return getattr(self.base_clf, name)
 
 
 @pytest.fixture
@@ -17,17 +43,31 @@ def sample_df():
         'away_score': [1, 2, 0, 1, 0],
         'neutral': [False] * 5,
         'tournament': ['Friendly'] * 5,
+        'league': ['International'] * 5,
+        'competition_type': ['international'] * 5,
     })
 
 
 @pytest.fixture
 def mock_model_path(tmp_path):
-    clf = RandomForestClassifier(n_estimators=2, random_state=42)
+    le = LabelEncoder()
+    le.fit(['International', 'Premier League'])
+
+    # Train XGBoost with numeric labels
+    outcome_le = LabelEncoder()
+    outcome_le.fit(['H', 'D', 'A'])
+
+    clf = XGBClassifier(n_estimators=2, random_state=42, eval_metric='mlogloss', verbosity=0)
     X = pd.DataFrame([[0.5] * len(FEATURE_COLS)] * 6, columns=FEATURE_COLS)
-    y = ['H', 'D', 'A', 'H', 'D', 'A']
-    clf.fit(X, y)
+    y = pd.Series(['H', 'D', 'A', 'H', 'D', 'A'])
+    y_encoded = outcome_le.transform(y)
+    clf.fit(X, y_encoded)
+
+    # Wrap it to handle string labels
+    wrapped_clf = XGBClassifierWrapper(clf, outcome_le)
+
     path = str(tmp_path / 'model.pkl')
-    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS, 'n': 5}, path)
+    joblib.dump({'model': wrapped_clf, 'feature_cols': FEATURE_COLS, 'n': 5, 'league_encoder': le}, path)
     return path
 
 
@@ -52,8 +92,19 @@ def test_predict_match_teams_stored_in_result(sample_df, mock_model_path):
     assert result['away_team'] == 'Germany'
 
 
+def test_predict_match_with_league_param(sample_df, mock_model_path):
+    result = predict_match('Brazil', 'Germany', sample_df, mock_model_path,
+                           league='International', competition_type='international')
+    assert result['result'] in ['H', 'D', 'A']
+
+
+def test_predict_match_unknown_league_does_not_raise(sample_df, mock_model_path):
+    result = predict_match('Brazil', 'Germany', sample_df, mock_model_path,
+                           league='Unknown League', competition_type='club')
+    assert result['result'] in ['H', 'D', 'A']
+
+
 def test_get_team_match_count_counts_home_and_away(sample_df):
-    # Brazil: home in rows 0,1,2,4 and away in row 3 = 5 total
     assert get_team_match_count(sample_df, 'Brazil') == 5
 
 
