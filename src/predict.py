@@ -22,12 +22,14 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
     n = artifact.get('n', 5)
     feature_cols = artifact['feature_cols']
     label_encoder = artifact.get('league_encoder')
+    players_df = artifact.get('players_df')
 
     features = build_features_for_prediction(
         df, home_team, away_team,
         is_neutral=is_neutral, n=n,
         league=league, label_encoder=label_encoder,
         competition_type=competition_type,
+        players_df=players_df,
     )
     X = pd.DataFrame([features])[feature_cols]
 

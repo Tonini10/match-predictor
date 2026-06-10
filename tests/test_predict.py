@@ -110,3 +110,36 @@ def test_get_team_match_count_counts_home_and_away(sample_df):
 
 def test_get_team_match_count_returns_zero_for_unknown(sample_df):
     assert get_team_match_count(sample_df, 'Unknown') == 0
+
+
+def test_predict_match_uses_players_df_from_artifact(sample_df, tmp_path):
+    le = LabelEncoder()
+    le.fit(['International', 'Premier League'])
+    re = LabelEncoder()
+    re.fit(['A', 'D', 'H'])
+
+    players_df = pd.DataFrame({
+        'club_name': ['Brazil', 'Germany'],
+        'nationality_name': ['Brazil', 'Germany'],
+        'overall': [88, 85],
+        'shooting': [85, 80],
+        'dribbling': [90, 78],
+        'defending': [70, 80],
+        'physic': [75, 82],
+        'player_positions': ['ST', 'CM'],
+    })
+
+    clf = XGBClassifier(n_estimators=2, random_state=42, eval_metric='mlogloss')
+    X = pd.DataFrame([[0.5] * len(FEATURE_COLS)] * 6, columns=FEATURE_COLS)
+    y_enc = re.transform(['H', 'D', 'A', 'H', 'D', 'A'])
+    clf.fit(X, y_enc)
+
+    path = str(tmp_path / 'model_with_players.pkl')
+    joblib.dump({
+        'model': clf, 'feature_cols': FEATURE_COLS, 'n': 5,
+        'league_encoder': le, 'result_encoder': re, 'players_df': players_df,
+    }, path)
+
+    # tmp_path gives a unique path — no cache collision risk
+    result = predict_match('Brazil', 'Germany', sample_df, path)
+    assert result['result'] in ['H', 'D', 'A']
