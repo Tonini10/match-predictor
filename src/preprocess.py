@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+from src.player_features import get_team_player_features
 
 FEATURE_COLS = [
     'home_avg_goals_scored',
@@ -13,10 +14,17 @@ FEATURE_COLS = [
     'is_international',
     'home_league_win_rate',
     'away_league_win_rate',
+    'home_team_rating',
+    'away_team_rating',
+    'home_team_attack',
+    'away_team_attack',
+    'home_team_defense',
+    'away_team_defense',
+    'rating_diff',
 ]
 
 
-def build_training_data(df, n=5):
+def build_training_data(df, n=5, players_df=None):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date').reset_index(drop=True)
@@ -60,12 +68,28 @@ def build_training_data(df, n=5):
         axis=1,
     )
 
+    # Player features — vectorized over unique teams for performance
+    if players_df is not None:
+        unique_teams = list(set(df['home_team'].unique()) | set(df['away_team'].unique()))
+        team_cache = {t: get_team_player_features(players_df, t) for t in unique_teams}
+        df['home_team_rating']  = df['home_team'].map(lambda t: team_cache[t]['team_rating'])
+        df['away_team_rating']  = df['away_team'].map(lambda t: team_cache[t]['team_rating'])
+        df['home_team_attack']  = df['home_team'].map(lambda t: team_cache[t]['team_attack'])
+        df['away_team_attack']  = df['away_team'].map(lambda t: team_cache[t]['team_attack'])
+        df['home_team_defense'] = df['home_team'].map(lambda t: team_cache[t]['team_defense'])
+        df['away_team_defense'] = df['away_team'].map(lambda t: team_cache[t]['team_defense'])
+        df['rating_diff'] = df['home_team_rating'] - df['away_team_rating']
+    else:
+        for col in ['home_team_rating', 'away_team_rating', 'home_team_attack',
+                    'away_team_attack', 'home_team_defense', 'away_team_defense', 'rating_diff']:
+            df[col] = 0.0
+
     return df[FEATURE_COLS + ['result']].copy(), le
 
 
 def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=5,
                                    before_date=None, league=None, label_encoder=None,
-                                   competition_type=None):
+                                   competition_type=None, players_df=None):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
@@ -98,6 +122,13 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
 
     is_international = 1 if competition_type == 'international' else 0
 
+    if players_df is not None:
+        h_p = get_team_player_features(players_df, home_team)
+        a_p = get_team_player_features(players_df, away_team)
+    else:
+        h_p = {'team_rating': 0.0, 'team_attack': 0.0, 'team_defense': 0.0}
+        a_p = {'team_rating': 0.0, 'team_attack': 0.0, 'team_defense': 0.0}
+
     return {
         'home_avg_goals_scored':   safe_mean(hm['home_score']),
         'home_avg_goals_conceded': safe_mean(hm['away_score']),
@@ -110,4 +141,11 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
         'is_international':        is_international,
         'home_league_win_rate':    home_league_win_rate,
         'away_league_win_rate':    away_league_win_rate,
+        'home_team_rating':        h_p['team_rating'],
+        'away_team_rating':        a_p['team_rating'],
+        'home_team_attack':        h_p['team_attack'],
+        'away_team_attack':        a_p['team_attack'],
+        'home_team_defense':       h_p['team_defense'],
+        'away_team_defense':       a_p['team_defense'],
+        'rating_diff':             h_p['team_rating'] - a_p['team_rating'],
     }

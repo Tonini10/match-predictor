@@ -152,3 +152,49 @@ def test_build_training_data_away_stats_rolling_correctness():
     result, _ = build_training_data(df)
     assert result.iloc[0]['away_avg_goals_scored'] == 0.0
     assert result.iloc[1]['away_avg_goals_scored'] == pytest.approx(1.0)
+
+
+from src.player_features import get_team_player_features
+
+
+@pytest.fixture
+def players_df_simple():
+    return pd.DataFrame({
+        'club_name': ['Brazil', 'Germany', 'Argentina'],
+        'nationality_name': ['Brazil', 'Germany', 'Argentina'],
+        'overall': [88, 85, 90],
+        'shooting': [85, 80, 88],
+        'dribbling': [90, 78, 87],
+        'defending': [70, 80, 72],
+        'physic': [75, 82, 74],
+        'player_positions': ['ST', 'CM', 'LW'],
+    })
+
+
+def test_build_training_data_with_players_df_adds_player_cols(sample_df, players_df_simple):
+    df, _ = build_training_data(sample_df, players_df=players_df_simple)
+    for col in ['home_team_rating', 'away_team_rating', 'home_team_attack',
+                'away_team_attack', 'home_team_defense', 'away_team_defense', 'rating_diff']:
+        assert col in df.columns, f"Missing column: {col}"
+
+
+def test_build_training_data_without_players_df_player_cols_are_zero(sample_df):
+    df, _ = build_training_data(sample_df, players_df=None)
+    assert df['home_team_rating'].sum() == 0.0
+    assert df['away_team_rating'].sum() == 0.0
+    assert df['rating_diff'].sum() == 0.0
+
+
+def test_build_features_for_prediction_with_players_df(sample_df, players_df_simple):
+    features = build_features_for_prediction(
+        sample_df, 'Brazil', 'Germany', players_df=players_df_simple
+    )
+    assert set(features.keys()) == set(FEATURE_COLS)
+    assert features['home_team_rating'] > 0.0
+    assert features['away_team_rating'] > 0.0
+
+
+def test_build_features_for_prediction_without_players_df_zeros(sample_df):
+    features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', players_df=None)
+    assert features['home_team_rating'] == 0.0
+    assert features['rating_diff'] == 0.0
