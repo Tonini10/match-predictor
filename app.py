@@ -223,7 +223,7 @@ selected_league = st.session_state.selected_league
 if selected_league == 'All' or 'league' not in df.columns:
     filtered_df = df
     league_param = None
-    comp_type_param = None
+    comp_type_param = 'international' if 'league' not in df.columns else None
 else:
     filtered_df = df[df['league'] == selected_league]
     league_param = selected_league

@@ -79,10 +79,13 @@ def download_csv(league_code, season, raw_dir):
     if dest.exists():
         return dest
     url = BASE_URL.format(season=season, code=league_code)
+    tmp = Path(raw_dir) / f'{league_code}_{season}.tmp'
     try:
-        urllib.request.urlretrieve(url, dest)
+        urllib.request.urlretrieve(url, tmp)
+        tmp.rename(dest)
         return dest
     except Exception:
+        tmp.unlink(missing_ok=True)
         return None
 
 

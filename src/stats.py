@@ -84,7 +84,7 @@ def get_radar_stats(df, home_team, away_team):
     eff_h, eff_a = norm_higher(hs['scoring_rate'], as_['scoring_rate'])
     sol_h, sol_a = norm_higher(hs['clean_sheet_rate'], as_['clean_sheet_rate'])
 
-    dimensions = ['Ataque', 'Defensa', 'Forma', 'Consistencia', 'Efectividad', 'Solidez']
+    dimensions = ['Attack', 'Defense', 'Form', 'Consistency', 'Efficiency', 'Solidity']
     return {
         'dimensions': dimensions,
         'home': [att_h, def_h, frm_h, con_h, eff_h, sol_h],
@@ -165,7 +165,7 @@ def get_recent_matches(df, team, n=10):
 
     home = df[df['home_team'] == team].copy()
     home['opponent'] = home['away_team']
-    home['home_away'] = 'Local'
+    home['home_away'] = 'Home'
     home['goals_for'] = home['home_score']
     home['goals_against'] = home['away_score']
     home['result'] = home.apply(
@@ -175,7 +175,7 @@ def get_recent_matches(df, team, n=10):
 
     away = df[df['away_team'] == team].copy()
     away['opponent'] = away['home_team']
-    away['home_away'] = 'Visitante'
+    away['home_away'] = 'Away'
     away['goals_for'] = away['away_score']
     away['goals_against'] = away['home_score']
     away['result'] = away.apply(

@@ -15,7 +15,7 @@ def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators
     X = training_df[FEATURE_COLS]
     y = training_df['result']
 
-    # Encode the target variable
+    # Encode target to integers (required by XGBoost 3.x)
     result_encoder = LabelEncoder()
     y_encoded = result_encoder.fit_transform(y)
 
@@ -29,7 +29,13 @@ def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators
     accuracy = clf.score(X_test, y_test)
     print(f"Test accuracy: {accuracy:.3f}")
 
-    joblib.dump({'model': clf, 'feature_cols': FEATURE_COLS, 'n': n, 'league_encoder': le}, model_path)
+    joblib.dump({
+        'model': clf,
+        'feature_cols': FEATURE_COLS,
+        'n': n,
+        'league_encoder': le,
+        'result_encoder': result_encoder,
+    }, model_path)
     print(f"Model saved to {model_path}")
     return clf, accuracy
 
