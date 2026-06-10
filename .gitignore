@@ -7,8 +7,8 @@ venv/
 .venv/
 .vscode/
 .idea/
-*.pkl
-*.joblib
 data/raw/
-data/clubs.csv
-data/all_matches.csv
+!model.pkl
+!data/results.csv
+!data/all_matches.csv
+!data/clubs.csv
