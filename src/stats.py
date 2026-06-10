@@ -190,3 +190,40 @@ def get_recent_matches(df, team, n=10):
     else:
         recent = combined[cols].tail(n).copy()
     return recent.sort_values('date', ascending=False).reset_index(drop=True)
+
+
+def get_league_stats(df, team, league, n_recent=10):
+    if 'league' not in df.columns:
+        return {
+            'total_matches': 0, 'wins': 0, 'draws': 0, 'losses': 0,
+            'win_rate': 0.0, 'goals_scored_per_game': 0.0,
+            'goals_conceded_per_game': 0.0, 'form': [], 'league': league,
+        }
+
+    league_df = df[df['league'] == league].copy()
+    all_m = _all_matches_for_team(league_df, team)
+
+    if len(all_m) == 0:
+        return {
+            'total_matches': 0, 'wins': 0, 'draws': 0, 'losses': 0,
+            'win_rate': 0.0, 'goals_scored_per_game': 0.0,
+            'goals_conceded_per_game': 0.0, 'form': [], 'league': league,
+        }
+
+    total = len(all_m)
+    wins = int((all_m['result'] == 'W').sum())
+    draws = int((all_m['result'] == 'D').sum())
+    losses = int((all_m['result'] == 'L').sum())
+    recent = all_m.tail(n_recent)
+
+    return {
+        'total_matches': total,
+        'wins': wins,
+        'draws': draws,
+        'losses': losses,
+        'win_rate': round(wins / total, 3),
+        'goals_scored_per_game': round(float(all_m['goals_for'].mean()), 2),
+        'goals_conceded_per_game': round(float(all_m['goals_against'].mean()), 2),
+        'form': recent['result'].tolist(),
+        'league': league,
+    }
