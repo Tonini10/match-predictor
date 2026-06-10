@@ -58,3 +58,11 @@ def test_train_uses_xgboost(sample_csv, tmp_path):
     model_path = str(tmp_path / 'model.pkl')
     clf, _ = train(data_path=sample_csv, model_path=model_path, n_estimators=5)
     assert isinstance(clf, XGBClassifier)
+
+
+def test_train_artifact_contains_players_df_key(sample_csv, tmp_path):
+    model_path = str(tmp_path / 'model.pkl')
+    train(data_path=sample_csv, model_path=model_path, n_estimators=5)
+    artifact = joblib.load(model_path)
+    # players_df can be None (no data/players.csv in test env) but key must exist
+    assert 'players_df' in artifact

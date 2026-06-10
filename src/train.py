@@ -4,13 +4,15 @@ from xgboost import XGBClassifier
 from sklearn.preprocessing import LabelEncoder
 import joblib
 from src.preprocess import build_training_data, FEATURE_COLS
+from src.player_features import load_players
 
 
 def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators=100, n=5):
     if not os.path.exists(data_path):
         data_path = 'data/results.csv'
     df = pd.read_csv(data_path)
-    training_df, le = build_training_data(df, n=n)
+    players_df = load_players()
+    training_df, le = build_training_data(df, n=n, players_df=players_df)
 
     X = training_df[FEATURE_COLS]
     y = training_df['result']
@@ -35,6 +37,7 @@ def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators
         'n': n,
         'league_encoder': le,
         'result_encoder': result_encoder,
+        'players_df': players_df,
     }, model_path)
     print(f"Model saved to {model_path}")
     return clf, accuracy
