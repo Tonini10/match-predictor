@@ -183,17 +183,14 @@ st.caption(caption_text)
 st.markdown("<div style='margin-bottom:1.2rem'></div>", unsafe_allow_html=True)
 
 # ── Competition selector ────────────────────────────────────────────────────
-WC_LABEL = 'FIFA World Cup'
 if 'league' in df.columns:
-    league_list = sorted([l for l in df['league'].dropna().unique() if l != WC_LABEL])
-    has_wc = WC_LABEL in df['league'].values
+    league_list = sorted(df['league'].dropna().unique())
     competition_type_map = (
         df.groupby('league')['competition_type'].first().to_dict()
         if 'competition_type' in df.columns else {}
     )
 else:
     league_list = []
-    has_wc = False
     competition_type_map = {}
 
 if 'selected_league' not in st.session_state:
@@ -204,11 +201,6 @@ st.markdown(
     'letter-spacing:0.8px;color:#444;margin-bottom:8px">Competition</div>',
     unsafe_allow_html=True,
 )
-
-if has_wc:
-    if st.button("World Cup — FIFA World Cup, all editions", key='wc_btn', use_container_width=True):
-        st.session_state.selected_league = WC_LABEL
-        st.rerun()
 
 other_options = ['All'] + league_list
 other_idx = (other_options.index(st.session_state.selected_league)
@@ -251,7 +243,7 @@ with opt_col:
     is_neutral = st.checkbox(
         "Neutral venue",
         value=True,
-        help="Enable for World Cup, Copa America, or other neutral-venue tournaments",
+        help="Enable for tournaments played at a neutral venue",
     )
 with btn_col:
     predict_btn = st.button("Predict Match", type="primary", use_container_width=True)
