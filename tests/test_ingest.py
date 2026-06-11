@@ -14,7 +14,10 @@ def _raw(date='01/08/2024', home='Arsenal', away='Chelsea', fthg=2, ftag=1, ftr=
 def test_normalize_csv_renames_columns():
     result = normalize_csv(_raw(), 'Premier League')
     expected_cols = {'date', 'home_team', 'away_team', 'home_score', 'away_score',
-                     'result', 'neutral', 'tournament', 'league', 'competition_type'}
+                     'result', 'neutral', 'tournament', 'league', 'competition_type',
+                     'home_shots', 'away_shots', 'home_shots_on_target', 'away_shots_on_target',
+                     'home_corners', 'away_corners', 'home_yellow', 'away_yellow',
+                     'home_red', 'away_red'}
     assert expected_cols == set(result.columns)
 
 
@@ -138,3 +141,40 @@ def test_combine_datasets_adds_league_to_international(tmp_path):
     assert 'league' in combined.columns
     assert 'competition_type' in combined.columns
     assert set(combined['competition_type'].tolist()) == {'club', 'international'}
+
+
+@pytest.fixture
+def raw_df_with_stats():
+    return pd.DataFrame({
+        'Date': ['16/08/2024', '17/08/2024'],
+        'HomeTeam': ['Man United', 'Arsenal'],
+        'AwayTeam': ['Fulham', 'Wolves'],
+        'FTHG': [1, 2], 'FTAG': [0, 0], 'FTR': ['H', 'H'],
+        'HS': [14, 18], 'AS': [10, 6],
+        'HST': [5, 9], 'AST': [2, 1],
+        'HC': [7, 8], 'AC': [8, 2],
+        'HY': [2, 1], 'AY': [3, 2],
+        'HR': [0, 0], 'AR': [0, 1],
+    })
+
+
+def test_normalize_csv_keeps_match_stats(raw_df_with_stats):
+    result = normalize_csv(raw_df_with_stats, 'Premier League')
+    assert result.iloc[0]['home_shots'] == 14
+    assert result.iloc[0]['away_shots'] == 10
+    assert result.iloc[0]['home_shots_on_target'] == 5
+    assert result.iloc[0]['home_corners'] == 7
+    assert result.iloc[0]['home_yellow'] == 2
+    assert result.iloc[1]['away_red'] == 1
+
+
+def test_normalize_csv_stats_nan_when_missing():
+    raw = pd.DataFrame({
+        'Date': ['16/08/2024'],
+        'HomeTeam': ['Man United'], 'AwayTeam': ['Fulham'],
+        'FTHG': [1], 'FTAG': [0], 'FTR': ['H'],
+    })
+    result = normalize_csv(raw, 'Premier League')
+    assert 'home_shots' in result.columns
+    assert pd.isna(result.iloc[0]['home_shots'])
+    assert pd.isna(result.iloc[0]['away_red'])

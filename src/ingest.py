@@ -33,6 +33,14 @@ SEASONS = [
 
 BASE_URL = 'https://www.football-data.co.uk/mmz4281/{season}/{code}.csv'
 
+STAT_COL_MAP = {
+    'HS': 'home_shots', 'AS': 'away_shots',
+    'HST': 'home_shots_on_target', 'AST': 'away_shots_on_target',
+    'HC': 'home_corners', 'AC': 'away_corners',
+    'HY': 'home_yellow', 'AY': 'away_yellow',
+    'HR': 'home_red', 'AR': 'away_red',
+}
+
 
 def normalize_csv(raw_df, league_name, competition_type='club'):
     """Normalize a football-data.co.uk raw DataFrame to the unified schema."""
@@ -44,17 +52,24 @@ def normalize_csv(raw_df, league_name, competition_type='club'):
         'FTAG': 'away_score',
         'FTR': 'result',
     }
-    df = raw_df.rename(columns=col_map).copy()
+    df = raw_df.rename(columns={**col_map, **STAT_COL_MAP}).copy()
     required = ['date', 'home_team', 'away_team', 'home_score', 'away_score']
     df = df[df[required].notna().all(axis=1)].copy()
 
-    keep = required + (['result'] if 'result' in df.columns else [])
+    stat_cols = list(STAT_COL_MAP.values())
+    keep = required + (['result'] if 'result' in df.columns else []) \
+           + [c for c in stat_cols if c in df.columns]
     df = df[keep].copy()
 
     df['date'] = pd.to_datetime(df['date'], dayfirst=True, errors='coerce')
     df = df.dropna(subset=['date'])
     df['home_score'] = df['home_score'].astype(int)
     df['away_score'] = df['away_score'].astype(int)
+
+    for c in stat_cols:
+        if c not in df.columns:
+            df[c] = pd.NA
+        df[c] = pd.to_numeric(df[c], errors='coerce')
 
     if 'result' not in df.columns:
         df['result'] = df.apply(
