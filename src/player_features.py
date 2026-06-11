@@ -62,3 +62,26 @@ def get_team_player_features(players_df, team_name):
         defense = rating
 
     return {'team_rating': rating, 'team_attack': attack, 'team_defense': defense}
+
+
+SQUAD_COLS = ['short_name', 'player_positions', 'age', 'overall',
+              'shooting', 'attacking_finishing', 'pace']
+
+
+def get_team_squad(players_df, team_name, n=11):
+    """Top n players by overall rating for a club or national team.
+    Returns an empty DataFrame when the team or the dataset is missing.
+    """
+    empty = pd.DataFrame(columns=SQUAD_COLS)
+    if players_df is None or len(players_df) == 0:
+        return empty
+
+    normalized = TEAM_NAME_MAP.get(team_name, team_name)
+    team = players_df[players_df['club_name'] == normalized]
+    if len(team) == 0:
+        team = players_df[players_df['nationality_name'] == normalized]
+    if len(team) == 0:
+        return empty
+
+    cols = [c for c in SQUAD_COLS if c in team.columns]
+    return team.nlargest(n, 'overall')[cols].reset_index(drop=True)

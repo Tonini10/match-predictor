@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
-from src.player_features import load_players, get_team_player_features, TEAM_NAME_MAP
+from src.player_features import (load_players, get_team_player_features,
+                                 get_team_squad, TEAM_NAME_MAP)
 
 
 @pytest.fixture
@@ -66,3 +67,48 @@ def test_get_team_player_features_uses_nationality_for_international(players_df)
 def test_team_name_map_has_common_aliases():
     assert 'Man City' in TEAM_NAME_MAP
     assert 'Man United' in TEAM_NAME_MAP
+
+
+@pytest.fixture
+def squad_players_df():
+    return pd.DataFrame({
+        'short_name': ['Saka', 'Odegaard', 'Saliba', 'Lewandowski', 'Pedri'],
+        'club_name': ['Arsenal', 'Arsenal', 'Arsenal', 'Barcelona', 'Barcelona'],
+        'nationality_name': ['England', 'Norway', 'France', 'Poland', 'Spain'],
+        'age': [22, 25, 23, 35, 21],
+        'overall': [86, 87, 84, 91, 85],
+        'shooting': [80, 78, 50, 92, 74],
+        'attacking_finishing': [82, 76, 45, 94, 70],
+        'pace': [85, 72, 80, 75, 79],
+        'player_positions': ['RW', 'CAM', 'CB', 'ST', 'CM'],
+    })
+
+
+def test_get_team_squad_returns_top_n_by_overall(squad_players_df):
+    squad = get_team_squad(squad_players_df, 'Arsenal', n=2)
+    assert len(squad) == 2
+    assert squad.iloc[0]['short_name'] == 'Odegaard'   # overall 87
+    assert squad.iloc[1]['short_name'] == 'Saka'        # overall 86
+
+
+def test_get_team_squad_includes_offensive_attributes(squad_players_df):
+    squad = get_team_squad(squad_players_df, 'Barcelona')
+    for col in ['short_name', 'player_positions', 'age', 'overall',
+                'shooting', 'attacking_finishing', 'pace']:
+        assert col in squad.columns
+
+
+def test_get_team_squad_falls_back_to_nationality(squad_players_df):
+    squad = get_team_squad(squad_players_df, 'Poland')
+    assert len(squad) == 1
+    assert squad.iloc[0]['short_name'] == 'Lewandowski'
+
+
+def test_get_team_squad_unknown_team_returns_empty(squad_players_df):
+    squad = get_team_squad(squad_players_df, 'Real Madrid')
+    assert len(squad) == 0
+
+
+def test_get_team_squad_none_players_returns_empty():
+    squad = get_team_squad(None, 'Arsenal')
+    assert len(squad) == 0
