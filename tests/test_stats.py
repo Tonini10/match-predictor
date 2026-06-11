@@ -5,6 +5,7 @@ from src.stats import (
     get_radar_stats,
     get_head_to_head,
     get_recent_matches,
+    get_recent_performance,
 )
 
 
@@ -172,3 +173,54 @@ def test_get_league_stats_no_league_col_falls_back(league_df):
     df_no_league = league_df.drop(columns=['league'])
     stats = get_league_stats(df_no_league, 'Arsenal', 'Premier League')
     assert stats['total_matches'] == 0
+
+
+# ── get_recent_performance ────────────────────────────────────────────────
+
+@pytest.fixture
+def df_with_match_stats():
+    return pd.DataFrame({
+        'date': ['2024-01-01', '2024-01-08', '2024-01-15'],
+        'home_team': ['Arsenal', 'Chelsea', 'Arsenal'],
+        'away_team': ['Chelsea', 'Arsenal', 'Liverpool'],
+        'home_score': [2, 0, 1],
+        'away_score': [0, 1, 1],
+        'home_shots': [15.0, 8.0, 12.0],
+        'away_shots': [6.0, 14.0, 10.0],
+        'home_shots_on_target': [7.0, 3.0, 5.0],
+        'away_shots_on_target': [2.0, 6.0, 4.0],
+        'home_corners': [8.0, 4.0, 6.0],
+        'away_corners': [2.0, 7.0, 5.0],
+        'home_yellow': [1.0, 2.0, 0.0],
+        'away_yellow': [3.0, 1.0, 2.0],
+        'home_red': [0.0, 0.0, 0.0],
+        'away_red': [0.0, 1.0, 0.0],
+    })
+
+
+def test_recent_performance_averages_team_perspective(df_with_match_stats):
+    perf = get_recent_performance(df_with_match_stats, 'Arsenal', n=5)
+    # Arsenal: local 15 tiros, visitante 14, local 12 -> promedio 41/3
+    assert perf['shots'] == round(41 / 3, 1)
+    assert perf['red'] == round(1 / 3, 1)
+
+
+def test_recent_performance_none_when_no_stat_columns():
+    df = pd.DataFrame({
+        'date': ['2024-01-01'],
+        'home_team': ['Brazil'], 'away_team': ['Germany'],
+        'home_score': [2], 'away_score': [0],
+    })
+    perf = get_recent_performance(df, 'Brazil')
+    assert perf['shots'] is None
+    assert perf['yellow'] is None
+
+
+def test_recent_performance_none_when_all_nan(df_with_match_stats):
+    df = df_with_match_stats.copy()
+    for c in df.columns:
+        if c.startswith(('home_', 'away_')) and c not in (
+                'home_team', 'away_team', 'home_score', 'away_score'):
+            df[c] = float('nan')
+    perf = get_recent_performance(df, 'Arsenal')
+    assert perf['shots'] is None

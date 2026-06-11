@@ -227,3 +227,33 @@ def get_league_stats(df, team, league, n_recent=10):
         'form': recent['result'].tolist(),
         'league': league,
     }
+
+
+RECENT_STAT_SOURCES = {
+    'shots': ('home_shots', 'away_shots'),
+    'shots_on_target': ('home_shots_on_target', 'away_shots_on_target'),
+    'corners': ('home_corners', 'away_corners'),
+    'yellow': ('home_yellow', 'away_yellow'),
+    'red': ('home_red', 'away_red'),
+}
+
+
+def get_recent_performance(df, team, n=5):
+    """Average match stats over the team's last n matches (home or away).
+    Values are None when the stat is unavailable for that team.
+    """
+    df = df.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    matches = df[(df['home_team'] == team) | (df['away_team'] == team)]
+    matches = matches.sort_values('date').tail(n)
+
+    out = {}
+    for key, (h_col, a_col) in RECENT_STAT_SOURCES.items():
+        if h_col not in matches.columns or a_col not in matches.columns or len(matches) == 0:
+            out[key] = None
+            continue
+        vals = matches.apply(
+            lambda r: r[h_col] if r['home_team'] == team else r[a_col], axis=1)
+        vals = pd.to_numeric(vals, errors='coerce').dropna()
+        out[key] = round(float(vals.mean()), 1) if len(vals) else None
+    return out
