@@ -198,3 +198,66 @@ def test_build_features_for_prediction_without_players_df_zeros(sample_df):
     features = build_features_for_prediction(sample_df, 'Brazil', 'Germany', players_df=None)
     assert features['home_team_rating'] == 0.0
     assert features['rating_diff'] == 0.0
+
+
+@pytest.fixture
+def sample_df_with_stats():
+    return pd.DataFrame({
+        'date': ['2020-01-01', '2020-02-01', '2020-03-01'],
+        'home_team': ['Arsenal', 'Arsenal', 'Chelsea'],
+        'away_team': ['Chelsea', 'Liverpool', 'Arsenal'],
+        'home_score': [2, 1, 0],
+        'away_score': [1, 2, 1],
+        'neutral': [False] * 3,
+        'tournament': ['Premier League'] * 3,
+        'league': ['Premier League'] * 3,
+        'competition_type': ['club'] * 3,
+        'home_shots': [10.0, 20.0, 8.0],
+        'away_shots': [5.0, 12.0, 15.0],
+        'home_shots_on_target': [4.0, 8.0, 3.0],
+        'away_shots_on_target': [2.0, 5.0, 6.0],
+        'home_corners': [6.0, 10.0, 4.0],
+        'away_corners': [3.0, 7.0, 9.0],
+        'home_yellow': [1.0, 3.0, 2.0],
+        'away_yellow': [2.0, 1.0, 0.0],
+        'home_red': [0.0, 1.0, 0.0],
+        'away_red': [0.0, 0.0, 1.0],
+    })
+
+
+def test_feature_cols_include_match_stats():
+    for col in ['home_avg_shots', 'home_avg_shots_on_target', 'home_avg_corners',
+                'home_avg_yellow', 'home_avg_red',
+                'away_avg_shots', 'away_avg_shots_on_target', 'away_avg_corners',
+                'away_avg_yellow', 'away_avg_red']:
+        assert col in FEATURE_COLS
+
+
+def test_training_rolling_stats_use_previous_matches(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    # Primer partido de Arsenal como local: sin historial -> 0
+    assert df.iloc[0]['home_avg_shots'] == 0.0
+    # Segundo partido de Arsenal como local: promedio del partido anterior (10 tiros)
+    assert df.iloc[1]['home_avg_shots'] == 10.0
+    assert df.iloc[1]['home_avg_yellow'] == 1.0
+
+
+def test_training_stats_zero_when_columns_missing(sample_df):
+    df, _ = build_training_data(sample_df)
+    assert (df['home_avg_shots'] == 0.0).all()
+    assert (df['away_avg_red'] == 0.0).all()
+
+
+def test_prediction_features_include_stats(sample_df_with_stats):
+    feats = build_features_for_prediction(sample_df_with_stats, 'Arsenal', 'Chelsea')
+    # Arsenal de local: partidos con 10 y 20 tiros -> promedio 15
+    assert feats['home_avg_shots'] == 15.0
+    assert feats['home_avg_corners'] == 8.0
+    # Chelsea de visitante: 1 partido (2020-01-01) con 5 tiros
+    assert feats['away_avg_shots'] == 5.0
+
+
+def test_prediction_stats_zero_when_columns_missing(sample_df):
+    feats = build_features_for_prediction(sample_df, 'Brazil', 'Germany')
+    assert feats['home_avg_shots'] == 0.0
+    assert feats['away_avg_red'] == 0.0

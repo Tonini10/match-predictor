@@ -2,6 +2,15 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from src.player_features import get_team_player_features
 
+# feature suffix -> (columna del equipo local, columna del visitante)
+MATCH_STAT_SOURCES = {
+    'avg_shots': ('home_shots', 'away_shots'),
+    'avg_shots_on_target': ('home_shots_on_target', 'away_shots_on_target'),
+    'avg_corners': ('home_corners', 'away_corners'),
+    'avg_yellow': ('home_yellow', 'away_yellow'),
+    'avg_red': ('home_red', 'away_red'),
+}
+
 FEATURE_COLS = [
     'home_avg_goals_scored',
     'home_avg_goals_conceded',
@@ -21,6 +30,16 @@ FEATURE_COLS = [
     'home_team_defense',
     'away_team_defense',
     'rating_diff',
+    'home_avg_shots',
+    'home_avg_shots_on_target',
+    'home_avg_corners',
+    'home_avg_yellow',
+    'home_avg_red',
+    'away_avg_shots',
+    'away_avg_shots_on_target',
+    'away_avg_corners',
+    'away_avg_yellow',
+    'away_avg_red',
 ]
 
 
@@ -54,6 +73,14 @@ def build_training_data(df, n=5, players_df=None):
     df['away_avg_goals_conceded'] = rolling_mean('away_team', 'home_score')
     df['away_win_rate']           = rolling_mean('away_team', 'away_win')
     df['home_is_neutral']         = df['neutral'].astype(int)
+
+    for feat, (h_col, a_col) in MATCH_STAT_SOURCES.items():
+        if h_col in df.columns and a_col in df.columns:
+            df[f'home_{feat}'] = rolling_mean('home_team', h_col)
+            df[f'away_{feat}'] = rolling_mean('away_team', a_col)
+        else:
+            df[f'home_{feat}'] = 0.0
+            df[f'away_{feat}'] = 0.0
 
     df['home_league_win_rate'] = rolling_mean_by_league('home_team', 'home_win')
     df['away_league_win_rate'] = rolling_mean_by_league('away_team', 'away_win')
@@ -129,6 +156,16 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
         h_p = {'team_rating': 0.0, 'team_attack': 0.0, 'team_defense': 0.0}
         a_p = {'team_rating': 0.0, 'team_attack': 0.0, 'team_defense': 0.0}
 
+    def stat_avg(matches, col):
+        if col not in matches.columns:
+            return 0.0
+        return safe_mean(pd.to_numeric(matches[col], errors='coerce').dropna())
+
+    match_stat_features = {}
+    for feat, (h_col, a_col) in MATCH_STAT_SOURCES.items():
+        match_stat_features[f'home_{feat}'] = stat_avg(hm, h_col)
+        match_stat_features[f'away_{feat}'] = stat_avg(am, a_col)
+
     return {
         'home_avg_goals_scored':   safe_mean(hm['home_score']),
         'home_avg_goals_conceded': safe_mean(hm['away_score']),
@@ -148,4 +185,5 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
         'home_team_defense':       h_p['team_defense'],
         'away_team_defense':       a_p['team_defense'],
         'rating_diff':             h_p['team_rating'] - a_p['team_rating'],
+        **match_stat_features,
     }
