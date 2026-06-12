@@ -33,6 +33,12 @@ st.markdown("""
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
+/* Streamlit's icons are ligature text in the Material Symbols font; the global
+   Inter override above must not apply to them or the icon name renders as text */
+[data-testid="stIconMaterial"], .material-symbols-rounded, [class*="material-symbols"] {
+    font-family: 'Material Symbols Rounded' !important;
+}
+
 .stApp { background: #0a0c10 !important; }
 .block-container { padding: 1.5rem 2rem 3rem !important; max-width: 1200px; }
 
