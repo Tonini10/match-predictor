@@ -9,7 +9,10 @@ from src.stats import (
     get_head_to_head,
     get_recent_matches,
     get_league_stats,
+    get_recent_performance,
 )
+from src.player_features import load_players, get_team_player_features, get_team_squad
+from src.betting import recommend, expected_values
 
 DATA_PATH = 'data/all_matches.csv' if os.path.exists('data/all_matches.csv') else 'data/results.csv'
 MODEL_PATH = 'model.pkl'
@@ -169,6 +172,14 @@ def load_data():
 
 df = load_data()
 
+
+@st.cache_data
+def load_players_cached():
+    return load_players()
+
+
+players_df = load_players_cached()
+
 if not os.path.exists(MODEL_PATH):
     with st.spinner("Training model for the first time... (~30 seconds)"):
         from src.train import train
@@ -237,6 +248,12 @@ with col_vs:
     )
 with col_a:
     away_team = st.selectbox("Away", teams, index=default_away)
+
+with st.expander("Betting odds (optional) — decimal odds from your bookmaker"):
+    oc1, oc2, oc3 = st.columns(3)
+    odds_h = oc1.number_input("Home (1)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_d = oc2.number_input("Draw (X)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_a = oc3.number_input("Away (2)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
 
 opt_col, btn_col = st.columns([1, 3])
 with opt_col:
@@ -396,6 +413,90 @@ if predict_btn:
                     f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">RECENT FORM</div>'
                     f'{badges}',
                 ), unsafe_allow_html=True)
+
+        # ── Bet recommendation ──
+        rec = recommend(probs)
+        conf_text = {'high': 'HIGH CONFIDENCE', 'medium': 'MEDIUM CONFIDENCE', None: ''}[rec['confidence']]
+        rec_color = '#00d4aa' if rec['market'] else '#f59e0b'
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(_card(
+            f'<div style="font-size:0.62rem;color:#444;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Bet recommendation</div>'
+            f'<div style="font-size:1.2rem;font-weight:800;color:{rec_color}">{rec["label"]}</div>'
+            + (f'<div style="font-size:0.7rem;color:#555;font-weight:700;margin-top:4px">{conf_text}</div>'
+               if conf_text else ''),
+            border=rec_color,
+        ), unsafe_allow_html=True)
+
+        user_odds = {'H': odds_h or None, 'D': odds_d or None, 'A': odds_a or None}
+        evs = expected_values(probs, user_odds)
+        if evs:
+            ev_cols = st.columns(len(evs))
+            names = {'H': f'Home {odds_h:.2f}', 'D': f'Draw {odds_d:.2f}', 'A': f'Away {odds_a:.2f}'}
+            for col, (mkt, ev) in zip(ev_cols, evs.items()):
+                col.metric(names[mkt], f"EV {ev:+.1%}",
+                           delta="value bet" if ev > 0 else "no value",
+                           delta_color="normal" if ev > 0 else "inverse")
+
+        st.caption("Statistical tool only — predictions and recommendations do not "
+                   "guarantee outcomes. Bet responsibly.")
+
+        # ── Squads ──
+        home_squad = get_team_squad(players_df, home_team)
+        away_squad = get_team_squad(players_df, away_team)
+        if players_df is None:
+            st.caption("Squad data unavailable — download the FIFA players dataset "
+                       "from Kaggle and save it as `data/players.csv` to enable "
+                       "squad tables and player-quality features.")
+        elif len(home_squad) or len(away_squad):
+            with st.expander("Squads — top players by rating"):
+                sq1, sq2 = st.columns(2)
+                squad_cols = {'short_name': 'Player', 'player_positions': 'Pos',
+                              'age': 'Age', 'overall': 'Rating', 'shooting': 'Shooting',
+                              'attacking_finishing': 'Finishing', 'pace': 'Pace'}
+                for col, team, squad in [(sq1, home_team, home_squad),
+                                         (sq2, away_team, away_squad)]:
+                    with col:
+                        st.markdown(f"**{team}**")
+                        if len(squad):
+                            st.dataframe(squad.rename(columns=squad_cols),
+                                         hide_index=True, use_container_width=True)
+                        else:
+                            st.caption("No player data for this team.")
+
+            with st.expander("Squad comparison"):
+                h_pf = get_team_player_features(players_df, home_team)
+                a_pf = get_team_player_features(players_df, away_team)
+                dims = ['Rating', 'Attack', 'Defense']
+                fig_sq = go.Figure()
+                for name, pf, color in [(home_team, h_pf, '#00d4aa'),
+                                        (away_team, a_pf, '#f43f5e')]:
+                    fig_sq.add_trace(go.Bar(
+                        name=name, x=dims,
+                        y=[pf['team_rating'] * 100, pf['team_attack'] * 100,
+                           pf['team_defense'] * 100],
+                        marker_color=color,
+                    ))
+                fig_sq.update_layout(**_LAYOUT, barmode='group', height=300,
+                                     yaxis=dict(range=[0, 100]))
+                st.plotly_chart(fig_sq, use_container_width=True)
+
+        # ── Recent performance ──
+        with st.expander("Recent performance — last 5 matches"):
+            h_perf = get_recent_performance(df, home_team)
+            a_perf = get_recent_performance(df, away_team)
+            stat_names = {'shots': 'Shots', 'shots_on_target': 'Shots on target',
+                          'corners': 'Corners', 'yellow': 'Yellow cards',
+                          'red': 'Red cards'}
+            perf_df = pd.DataFrame({
+                'Stat': list(stat_names.values()),
+                home_team: [h_perf[k] if h_perf[k] is not None else '—' for k in stat_names],
+                away_team: [a_perf[k] if a_perf[k] is not None else '—' for k in stat_names],
+            })
+            st.dataframe(perf_df, hide_index=True, use_container_width=True)
+            if all(v is None for v in h_perf.values()) or all(v is None for v in a_perf.values()):
+                st.caption("Match stats are only available for club league games "
+                           "(not international fixtures).")
 
     # ═══════════════ TAB 2 · ESTADÍSTICAS ══════════════════════════════════
     with tab2:
