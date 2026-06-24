@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.ingest_api import fetch_wc_matches
+
 LEAGUES = {
     'E0': 'Premier League',
     'E1': 'Championship',
@@ -142,7 +144,6 @@ def combine_datasets(clubs_df, international_path='data/results.csv'):
 
 def merge_wc_data(combined_df, api_key):
     """Append finished WC 2026 matches from football-data.org to combined_df."""
-    from src.ingest_api import fetch_wc_matches
     wc = fetch_wc_matches(api_key)
     if len(wc) == 0:
         return combined_df

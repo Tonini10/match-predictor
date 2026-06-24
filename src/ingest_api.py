@@ -4,6 +4,7 @@ import pandas as pd
 
 WC_URL = 'https://api.football-data.org/v4/competitions/WC/matches'
 
+# Mirrors the values of STAT_COL_MAP in src/ingest.py — update both if columns change
 _STAT_COLS = [
     'home_shots', 'away_shots',
     'home_shots_on_target', 'away_shots_on_target',
