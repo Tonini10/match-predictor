@@ -28,7 +28,7 @@ SEASONS = [
     '0001', '0102', '0203', '0304', '0405', '0506', '0607',
     '0708', '0809', '0910', '1011', '1112', '1213', '1314',
     '1415', '1516', '1617', '1718', '1819', '1920', '2021',
-    '2122', '2223', '2324', '2425',
+    '2122', '2223', '2324', '2425', '2526',
 ]
 
 BASE_URL = 'https://www.football-data.co.uk/mmz4281/{season}/{code}.csv'
@@ -140,8 +140,19 @@ def combine_datasets(clubs_df, international_path='data/results.csv'):
     return combined.sort_values('date').reset_index(drop=True)
 
 
+def merge_wc_data(combined_df, api_key):
+    """Append finished WC 2026 matches from football-data.org to combined_df."""
+    from src.ingest_api import fetch_wc_matches
+    wc = fetch_wc_matches(api_key)
+    if len(wc) == 0:
+        return combined_df
+    merged = pd.concat([combined_df, wc], ignore_index=True).sort_values('date').reset_index(drop=True)
+    return merged.drop_duplicates(subset=['date', 'home_team', 'away_team'], keep='last').reset_index(drop=True)
+
+
 if __name__ == '__main__':
     import sys
+    import os
     raw_dir = sys.argv[1] if len(sys.argv) > 1 else 'data/raw'
     print(f'Downloading club data to {raw_dir}...')
     clubs = build_clubs_dataset(raw_dir)
@@ -149,5 +160,12 @@ if __name__ == '__main__':
     clubs.to_csv('data/clubs.csv', index=False)
     print('Saved data/clubs.csv')
     combined = combine_datasets(clubs)
+    api_key = os.environ.get('FOOTBALL_DATA_API_KEY')
+    if api_key:
+        print('Fetching FIFA World Cup 2026 results...')
+        combined = merge_wc_data(combined, api_key)
+        print(f'Dataset after WC merge: {len(combined)} total matches')
+    else:
+        print('FOOTBALL_DATA_API_KEY not set — skipping WC 2026 data.')
     combined.to_csv('data/all_matches.csv', index=False)
     print(f'Saved data/all_matches.csv ({len(combined)} total matches)')
