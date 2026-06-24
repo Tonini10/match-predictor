@@ -46,9 +46,10 @@ if api_key:
 ```
 
 **API key setup (user instruction):**
-1. Register free at football-data.org
-2. Set env var: `$env:FOOTBALL_DATA_API_KEY="your_key"` (PowerShell) or add to `.env`
-3. Run `python -m src.ingest data/raw`
+1. Registrarse gratis en https://www.football-data.org/client/register
+2. El API key llega al email registrado
+3. Set env var: `$env:FOOTBALL_DATA_API_KEY="your_key"` (PowerShell) or add to `.env`
+4. Run `python -m src.ingest data/raw`
 
 ### Error handling
 - If API call fails (network error, invalid key, rate limit): print warning and continue without WC data — never crashes the ingest pipeline
@@ -129,15 +130,17 @@ def recommend_combined(result_probs, ou_prob):
 ```
 
 Over/under thresholds:
-- `ou_prob >= 0.55` → recommend Over 2.5
-- `ou_prob <= 0.45` → recommend Under 2.5
-- `0.45 < ou_prob < 0.55` → no recommendation (too close to call)
+- `ou_prob >= 0.60` → recommend Over 2.5
+- `ou_prob <= 0.40` → recommend Under 2.5
+- `0.40 < ou_prob < 0.60` → no recommendation (too close to call)
 
-`combined_label` examples:
-- `"Local gana (1)  ·  Over 2.5"` (both confident)
-- `"Doble oportunidad 1X  ·  Under 2.5"`
-- `"Local gana (1)  ·  Over/Under incierto"`
-- `"Sin recomendación de resultado  ·  Over 2.5"`
+`combined_label` examples (all UI text in Spanish):
+- `"Local gana (1)  ·  Más de 2.5 goles"` (both confident)
+- `"Doble oportunidad 1X  ·  Menos de 2.5 goles"`
+- `"Local gana (1)  ·  Goles inciertos"`
+- `"Sin recomendación  ·  Más de 2.5 goles"`
+
+All labels, card headers, metric names, captions, and expander titles in `app.py` in Spanish.
 
 ### Changes to `app.py`
 
@@ -167,7 +170,7 @@ Over/under thresholds:
 ### Tests (`tests/test_betting.py`)
 - `test_recommend_combined_both_confident` — result high + ou >= 0.55
 - `test_recommend_combined_no_result_has_ou` — result None + ou recommendation
-- `test_recommend_combined_grey_zone_ou` — ou between 0.45–0.55 → ou_rec market is None
+- `test_recommend_combined_grey_zone_ou` — ou between 0.40–0.60 → ou_rec market is None
 - `test_recommend_combined_ou_none_skipped` — `ou_prob=None` → ou_rec is None, no crash
 
 ---
