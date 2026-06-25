@@ -4,6 +4,17 @@ import pandas as pd
 
 WC_URL = 'https://api.football-data.org/v4/competitions/WC/matches'
 
+# WC 2026 host nations — have home advantage when playing in their country
+_WC_HOSTS = {'United States', 'Mexico', 'Canada'}
+
+# Maps football-data.org team names to the canonical names used in results.csv
+_TEAM_NAME_MAP = {
+    'Bosnia-Herzegovina': 'Bosnia and Herzegovina',
+    'Cape Verde Islands': 'Cape Verde',
+    'Czechia': 'Czech Republic',
+    'Congo DR': 'DR Congo',
+}
+
 # Mirrors the values of STAT_COL_MAP in src/ingest.py — update both if columns change
 _STAT_COLS = [
     'home_shots', 'away_shots',
@@ -37,16 +48,19 @@ def fetch_wc_matches(api_key):
         away_goals = score.get('away')
         if home_goals is None or away_goals is None:
             continue
+        home_name = _TEAM_NAME_MAP.get(m['homeTeam']['name'], m['homeTeam']['name'])
+        away_name = _TEAM_NAME_MAP.get(m['awayTeam']['name'], m['awayTeam']['name'])
+        is_neutral = home_name not in _WC_HOSTS
         rows.append({
             'date': pd.to_datetime(m['utcDate']).normalize(),
-            'home_team': m['homeTeam']['name'],
-            'away_team': m['awayTeam']['name'],
+            'home_team': home_name,
+            'away_team': away_name,
             'home_score': int(home_goals),
             'away_score': int(away_goals),
             'tournament': 'FIFA World Cup 2026',
             'league': 'FIFA World Cup 2026',
             'competition_type': 'international',
-            'neutral': True,
+            'neutral': is_neutral,
         })
 
     if not rows:

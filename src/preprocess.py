@@ -151,8 +151,12 @@ def build_training_data(df, n=5, players_df=None):
                     'away_team_attack', 'home_team_defense', 'away_team_defense', 'rating_diff']:
             df[col] = 0.0
 
-    df['over_2_5'] = ((df['home_score'] + df['away_score']) > 2.5).astype(int)
-    return df[FEATURE_COLS + ['result', 'over_2_5']].copy(), le
+    total = df['home_score'] + df['away_score']
+    df['over_1_5'] = (total > 1.5).astype(int)
+    df['over_2_5'] = (total > 2.5).astype(int)
+    df['over_3_5'] = (total > 3.5).astype(int)
+    df['btts']     = ((df['home_score'] > 0) & (df['away_score'] > 0)).astype(int)
+    return df[FEATURE_COLS + ['result', 'over_1_5', 'over_2_5', 'over_3_5', 'btts']].copy(), le
 
 
 def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=5,

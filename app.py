@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import os
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,30 +10,24 @@ from src.stats import (
     get_radar_stats,
     get_head_to_head,
     get_recent_matches,
-    get_league_stats,
     get_recent_performance,
     get_stat_sparklines,
 )
 from src.player_features import load_players, get_team_player_features, get_team_squad
-from src.betting import recommend, expected_values, recommend_combined
+from src.betting import compute_all_markets, best_bet, expected_value, recommend_combined
 
 DATA_PATH = 'data/all_matches.csv' if os.path.exists('data/all_matches.csv') else 'data/results.csv'
 MODEL_PATH = 'model.pkl'
 
-st.set_page_config(
-    page_title="Football Predictor",
-    page_icon=":soccer:",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="Tonini Predictor", page_icon="⚽", layout="wide")
 
 # ── Professional CSS ───────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&display=swap');
 
 *, *::before, *::after {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
 /* Streamlit's icons are ligature text in the Material Symbols font; the global
@@ -54,8 +49,8 @@ h1 {
     background-clip: text;
     margin-bottom: 0 !important;
 }
-h2 { font-size: 1.3rem !important; font-weight: 700 !important; color: #e8eaf0 !important; }
-h3 { font-size: 1.05rem !important; font-weight: 600 !important; color: #c8cad4 !important; margin-bottom: 0.5rem !important; }
+h2 { font-size: 1.2rem !important; font-weight: 700 !important; color: #00d4aa !important; text-shadow: 0 0 20px rgba(0,212,170,0.5) !important; letter-spacing: 0.5px; }
+h3 { font-size: 1rem !important; font-weight: 600 !important; color: #c8cad4 !important; margin-bottom: 0.5rem !important; }
 p, li { color: #b0b3be !important; }
 .stCaption, [data-testid="stCaptionContainer"] { color: #555 !important; font-size: 0.8rem !important; }
 
@@ -164,6 +159,17 @@ hr { border-color: #1e2130 !important; margin: 1rem 0 !important; }
 ::-webkit-scrollbar-track { background: #13161d; }
 ::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #00d4aa; }
+
+/* Market boxes */
+.market-box {
+    background: #13161d;
+    border: 1px solid #1e2130;
+    border-radius: 10px;
+    padding: 12px 16px;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+.market-box.hot { border-color: #00d4aa; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -194,11 +200,8 @@ if not os.path.exists(MODEL_PATH):
         train()
 
 # ── Header ─────────────────────────────────────────────────────────────────
-st.markdown("# Football Match Predictor")
-caption_text = "XGBoost model  ·  All competitions  ·  1872–2026"
-if DATA_PATH == 'data/results.csv':
-    caption_text += "  ·  *Run `python -m src.ingest` to add club leagues*"
-st.caption(caption_text)
+st.markdown("# Tonini Predictor")
+st.caption("Modelo XGBoost · Mundial 2026 · Análisis completo de apuestas")
 st.markdown("<div style='margin-bottom:1.2rem'></div>", unsafe_allow_html=True)
 
 # ── Competition selector ────────────────────────────────────────────────────
@@ -257,14 +260,30 @@ with col_vs:
 with col_a:
     away_team = st.selectbox("Away", teams, index=default_away)
 
+# ── Odds expander (full grid) ───────────────────────────────────────────────
 with st.expander("Cuotas del corredor (opcional) — cuotas decimales de tu casa de apuestas"):
-    oc1, oc2, oc3 = st.columns(3)
-    odds_h = oc1.number_input("Local (1)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    odds_d = oc2.number_input("Empate (X)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    odds_a = oc3.number_input("Visitante (2)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    oc4, oc5, _ = st.columns(3)
-    odds_over = oc4.number_input("Más de 2.5", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    odds_under = oc5.number_input("Menos de 2.5", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    row1 = st.columns(6)
+    odds_h      = row1[0].number_input("Local (1)",        min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_d      = row1[1].number_input("Empate (X)",       min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_a      = row1[2].number_input("Visitante (2)",    min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_o15    = row1[3].number_input("O1.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_u15    = row1[4].number_input("U1.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_o25    = row1[5].number_input("O2.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    row2 = st.columns(6)
+    odds_u25    = row2[0].number_input("U2.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_o35    = row2[1].number_input("O3.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_u35    = row2[2].number_input("U3.5",             min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_btts_y = row2[3].number_input("BTTS Sí",          min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    odds_btts_n = row2[4].number_input("BTTS No",          min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+# Map market key -> user-entered odd
+_ODDS_MAP = {
+    '1': odds_h, 'X': odds_d, '2': odds_a,
+    'O15': odds_o15, 'U15': odds_u15,
+    'O25': odds_o25, 'U25': odds_u25,
+    'O35': odds_o35, 'U35': odds_u35,
+    'BTTS_Y': odds_btts_y, 'BTTS_N': odds_btts_n,
+}
 
 opt_col, btn_col = st.columns([1, 3])
 with opt_col:
@@ -274,18 +293,18 @@ with opt_col:
         help="Activar para torneos en sede neutral",
     )
 with btn_col:
-    predict_btn = st.button("Predict Match", type="primary", use_container_width=True)
+    predict_btn = st.button("Predecir Partido", type="primary", use_container_width=True)
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
 _LAYOUT = dict(
     template="plotly_dark",
     paper_bgcolor="#13161d",
     plot_bgcolor="#13161d",
-    font=dict(color="#b0b3be", family="Inter, sans-serif", size=12),
+    font=dict(color="#b0b3be", family="Rajdhani, sans-serif", size=12),
     margin=dict(l=20, r=20, t=44, b=20),
 )
-_TC  = {'H': '#00d4aa', 'D': '#f59e0b', 'A': '#f43f5e'}
-_RC  = {'W': '#00d4aa', 'D': '#f59e0b', 'L': '#f43f5e'}
+_TC = {'H': '#00d4aa', 'D': '#f59e0b', 'A': '#f43f5e'}
+_RC = {'W': '#00d4aa', 'D': '#f59e0b', 'L': '#f43f5e'}
 
 
 def _badge(result):
@@ -319,6 +338,62 @@ def _match_row(date, label, score, tourn, color):
     )
 
 
+def _market_box(label, prob, odd=None):
+    """Render a single market box as HTML. Returns an HTML string."""
+    if prob is None:
+        prob_text = "—"
+        is_hot = False
+        color = "#e8eaf0"
+        border = "#1e2130"
+    else:
+        prob_pct = prob * 100
+        prob_text = f"{prob_pct:.0f}%"
+        is_hot = prob >= 0.60
+        color = "#00d4aa" if is_hot else "#e8eaf0"
+        border = "#00d4aa" if is_hot else "#1e2130"
+
+    tag = ""
+    if is_hot:
+        tag = '<div style="font-size:0.6rem;font-weight:800;color:#00d4aa;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px">APOSTAR</div>'
+
+    if prob is not None and odd is not None and odd > 1.0:
+        ev = expected_value(prob, odd)
+        if ev is not None:
+            ev_color = "#00d4aa" if ev > 0 else "#f43f5e"
+            ev_glow = "rgba(0,212,170,0.4)" if ev > 0 else "rgba(244,63,94,0.4)"
+            ev_html = (
+                f'<div style="font-size:0.82rem;font-weight:800;color:{ev_color};'
+                f'margin-top:5px;letter-spacing:0.4px;'
+                f'text-shadow:0 0 8px {ev_glow}">EV {ev:+.2f}</div>'
+                f'<div style="font-size:0.62rem;color:{ev_color};opacity:0.7">({ev*100:+.1f}%)</div>'
+            )
+        else:
+            ev_html = '<div style="font-size:0.7rem;color:#333;margin-top:5px">EV —</div>'
+    elif prob is not None and odd is not None:
+        ev_html = '<div style="font-size:0.7rem;color:#333;margin-top:5px">EV —</div>'
+    elif prob is not None:
+        ev_html = '<div style="font-size:0.65rem;color:#2a2d3a;margin-top:5px">cuota →</div>'
+    else:
+        ev_html = ""
+
+    return (
+        f'<div style="background:#13161d;border:1px solid {border};border-radius:10px;'
+        f'padding:12px 16px;text-align:center;transition:border-color 0.2s">'
+        f'<div style="font-size:0.65rem;text-transform:uppercase;color:#555;font-weight:600;letter-spacing:0.4px;margin-bottom:4px">{label}</div>'
+        f'<div style="font-size:1.3rem;font-weight:800;color:{color}">{prob_text}</div>'
+        f'{tag}{ev_html}'
+        f'</div>'
+    )
+
+
+def _section_header(title):
+    return (
+        f'<div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:0.8px;color:#444;margin:18px 0 10px 0;border-bottom:1px solid #1e2130;'
+        f'padding-bottom:6px">{title}</div>'
+    )
+
+
 # ── Main prediction block ───────────────────────────────────────────────────
 if predict_btn:
     if home_team == away_team:
@@ -340,180 +415,157 @@ if predict_btn:
         st.error(f"Error: {e}")
         st.stop()
 
-    probs      = prediction['probabilities']
-    res_key    = prediction['result']
-    res_label  = prediction['result_label']
-    confidence = max(probs.values()) * 100
-    res_color  = _TC[res_key]
+    probs       = prediction['probabilities']
+    res_key     = prediction['result']
+    res_label   = prediction['result_label']
+    confidence  = max(probs.values()) * 100
+    res_color   = _TC[res_key]
+
+    over_1_5_prob = prediction.get('over_1_5_prob')
+    over_2_5_prob = prediction.get('over_2_5_prob')
+    over_3_5_prob = prediction.get('over_3_5_prob')
+    btts_prob     = prediction.get('btts_prob')
 
     home_stats = get_team_overall_stats(df, home_team)
     away_stats = get_team_overall_stats(df, away_team)
     radar      = get_radar_stats(df, home_team, away_team)
     h2h        = get_head_to_head(df, home_team, away_team)
 
-    ou_prob = prediction.get('over_under_prob')
+    # Compute all markets
+    markets = compute_all_markets(probs, over_1_5_prob, over_2_5_prob, over_3_5_prob, btts_prob)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Predicción", "Estadísticas", "Cara a Cara", "Historial", "Liga"]
-    )
+    tab1, tab2, tab3 = st.tabs(["Pronóstico", "Estadísticas", "Cara a Cara & Historial"])
 
-    # ═══════════════ TAB 1 · PREDICCIÓN ════════════════════════════════════
+    # ═══════════════ TAB 1 · PRONÓSTICO ════════════════════════════════════
     with tab1:
+        # 1. Hero card
         neutral_tag = (
             ' &nbsp;<span style="background:#1e2130;color:#555;font-size:11px;'
             'padding:3px 10px;border-radius:20px;font-weight:600">'
-            'Neutral venue</span>' if is_neutral else ''
+            'Sede neutral</span>' if is_neutral else ''
         )
         st.markdown(_card(
             f'<div style="text-align:center">'
             f'<div style="font-size:2.4rem;font-weight:900;color:{res_color};'
             f'letter-spacing:-0.5px;line-height:1.1">{res_label.upper()}</div>'
             f'<div style="margin-top:10px;font-size:0.85rem;color:#555;font-weight:600">'
-            f'CONFIDENCE &nbsp;'
+            f'CONFIANZA &nbsp;'
             f'<span style="color:#e8eaf0;font-size:1.1rem;font-weight:800">{confidence:.1f}%</span>'
             f'{neutral_tag}</div></div>',
             border=res_color,
         ), unsafe_allow_html=True)
 
-        if ou_prob is not None:
-            m1, m2, m3, m4 = st.columns(4)
-        else:
-            m1, m2, m3 = st.columns(3)
-            m4 = None
-        m1.metric(f"Local — {home_team}",     f"{probs.get('H',0)*100:.1f}%")
-        m2.metric("Empate",                    f"{probs.get('D',0)*100:.1f}%")
-        m3.metric(f"Visitante — {away_team}", f"{probs.get('A',0)*100:.1f}%")
-        if m4 is not None:
-            m4.metric("Más de 2.5 goles", f"{ou_prob*100:.1f}%")
-
-        h_v, d_v, a_v = probs.get('H',0), probs.get('D',0), probs.get('A',0)
+        # 2. Barra de probabilidades 1X2
+        h_v, d_v, a_v = probs.get('H', 0), probs.get('D', 0), probs.get('A', 0)
         fig_prob = go.Figure(go.Bar(
             x=[h_v, d_v, a_v],
-            y=[f"Home — {home_team}", "Draw", f"Away — {away_team}"],
+            y=[f"Local — {home_team}", "Empate", f"Visit. — {away_team}"],
             orientation='h',
-            text=[f"<b>{v*100:.1f}%</b>" for v in [h_v, d_v, a_v]],
+            text=[f"<b>{v * 100:.1f}%</b>" for v in [h_v, d_v, a_v]],
             textposition='inside',
-            marker=dict(color=['#00d4aa','#f59e0b','#f43f5e'], line=dict(width=0)),
+            marker=dict(color=['#00d4aa', '#f59e0b', '#f43f5e'], line=dict(width=0)),
             insidetextfont=dict(size=14, color='#000'),
         ))
         fig_prob.update_layout(
             **_LAYOUT,
-            xaxis=dict(tickformat='.0%', range=[0,1], showgrid=False, showticklabels=False),
+            xaxis=dict(tickformat='.0%', range=[0, 1], showgrid=False, showticklabels=False),
             yaxis=dict(autorange='reversed', tickfont=dict(size=13, color='#c8cad4')),
-            height=200, bargap=0.35,
+            height=180, bargap=0.35,
         )
-        st.plotly_chart(fig_prob, use_container_width=True)
+        st.plotly_chart(fig_prob, width='stretch', theme=None)
+
+        # 3. MERCADOS DE APUESTA
+        st.markdown(_section_header("MERCADOS DE APUESTA — RESULTADO"), unsafe_allow_html=True)
+
+        # Row 1: 1, X, 2
+        rc1, rc2, rc3 = st.columns(3)
+        rc1.markdown(_market_box("Local (1)", markets['1']['prob'], _ODDS_MAP.get('1')), unsafe_allow_html=True)
+        rc2.markdown(_market_box("Empate (X)", markets['X']['prob'], _ODDS_MAP.get('X')), unsafe_allow_html=True)
+        rc3.markdown(_market_box("Visitante (2)", markets['2']['prob'], _ODDS_MAP.get('2')), unsafe_allow_html=True)
+
+        # Row 2: 1X, X2, 12
+        dc1, dc2, dc3 = st.columns(3)
+        dc1.markdown(_market_box("Doble op. 1X", markets['1X']['prob']), unsafe_allow_html=True)
+        dc2.markdown(_market_box("Doble op. X2", markets['X2']['prob']), unsafe_allow_html=True)
+        dc3.markdown(_market_box("Doble op. 12", markets['12']['prob']), unsafe_allow_html=True)
+
+        # Row 3: DNB
+        dnb1, dnb2, _ = st.columns(3)
+        dnb1.markdown(_market_box("DNB Local", markets['DNB1']['prob']), unsafe_allow_html=True)
+        dnb2.markdown(_market_box("DNB Visitante", markets['DNB2']['prob']), unsafe_allow_html=True)
+
+        st.markdown(_section_header("MERCADOS DE APUESTA — GOLES"), unsafe_allow_html=True)
+
+        # Goles row 1: O1.5, U1.5, O2.5, U2.5
+        gr1, gr2, gr3, gr4 = st.columns(4)
+        gr1.markdown(_market_box("O 1.5", markets['O15']['prob'], _ODDS_MAP.get('O15')), unsafe_allow_html=True)
+        gr2.markdown(_market_box("U 1.5", markets['U15']['prob'], _ODDS_MAP.get('U15')), unsafe_allow_html=True)
+        gr3.markdown(_market_box("O 2.5", markets['O25']['prob'], _ODDS_MAP.get('O25')), unsafe_allow_html=True)
+        gr4.markdown(_market_box("U 2.5", markets['U25']['prob'], _ODDS_MAP.get('U25')), unsafe_allow_html=True)
+
+        # Goles row 2: O3.5, U3.5, BTTS_Y, BTTS_N
+        gr5, gr6, gr7, gr8 = st.columns(4)
+        gr5.markdown(_market_box("O 3.5", markets['O35']['prob'], _ODDS_MAP.get('O35')), unsafe_allow_html=True)
+        gr6.markdown(_market_box("U 3.5", markets['U35']['prob'], _ODDS_MAP.get('U35')), unsafe_allow_html=True)
+        gr7.markdown(_market_box("BTTS Sí", markets['BTTS_Y']['prob'], _ODDS_MAP.get('BTTS_Y')), unsafe_allow_html=True)
+        gr8.markdown(_market_box("BTTS No", markets['BTTS_N']['prob'], _ODDS_MAP.get('BTTS_N')), unsafe_allow_html=True)
+
+        st.markdown(_section_header("MERCADOS DE APUESTA — HÁNDICAP ASIÁTICO"), unsafe_allow_html=True)
+
+        ah1, ah2, ah3, ah4 = st.columns(4)
+        ah1.markdown(_market_box("Local -0.5", markets['AH_H05']['prob']), unsafe_allow_html=True)
+        ah2.markdown(_market_box("Local +0.5", markets['AH_H05P']['prob']), unsafe_allow_html=True)
+        ah3.markdown(_market_box("Visit. -0.5", markets['AH_A05']['prob']), unsafe_allow_html=True)
+        ah4.markdown(_market_box("Visit. +0.5", markets['AH_A05P']['prob']), unsafe_allow_html=True)
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        for col, team, stats in [
-            (c1, home_team, home_stats),
-            (c2, away_team, away_stats),
-        ]:
-            with col:
-                badges = " ".join(_badge(r) for r in stats['form'][-5:]) or "—"
-                st.markdown(_card(
-                    f'<div style="font-size:1rem;font-weight:700;color:#e8eaf0;margin-bottom:14px">'
-                    f'{team}</div>'
-                    f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
-                    f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Goals / Game</div>'
-                    f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["goals_scored_per_game"]}</div></div>'
-                    f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Conceded / Game</div>'
-                    f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["goals_conceded_per_game"]}</div></div>'
-                    f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Win Rate</div>'
-                    f'<div style="font-size:1.4rem;font-weight:800;color:#00d4aa">{stats["win_rate"]*100:.0f}%</div></div>'
-                    f'<div style="background:#0a0c10;border-radius:8px;padding:10px 12px">'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Matches</div>'
-                    f'<div style="font-size:1.4rem;font-weight:800;color:#e8eaf0">{stats["total_matches"]}</div></div>'
-                    f'</div>'
-                    f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">RECENT FORM</div>'
-                    f'{badges}',
-                ), unsafe_allow_html=True)
 
-        # ── Recomendación de apuesta ──
-        combined = recommend_combined(probs, ou_prob)
-        result_rec = combined['result_rec']
-        ou_rec = combined['ou_rec']
+        # 4. MEJOR APUESTA — card destacada
+        best = best_bet(markets, threshold=0.60)
+        combined = recommend_combined(probs, over_2_5_prob)
 
-        conf_text = {
-            'high': 'ALTA CONFIANZA', 'medium': 'CONFIANZA MEDIA', None: ''
-        }[result_rec['confidence']]
-        rec_color = '#00d4aa' if result_rec['market'] else '#f59e0b'
-
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-        inner_resultado = (
-            f'<div style="background:#0a0c10;border-radius:10px;padding:14px 16px">'
-            f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:0.5px;margin-bottom:6px">Resultado</div>'
-            f'<div style="font-size:1.05rem;font-weight:800;color:{rec_color}">{result_rec["label"]}</div>'
-            + (f'<div style="font-size:0.65rem;color:#555;font-weight:700;margin-top:4px">{conf_text}</div>'
-               if conf_text else '')
-            + '</div>'
-        )
-
-        if ou_rec is not None:
-            ou_color = '#00d4aa' if ou_rec['market'] else '#f59e0b'
-            ou_prob_text = (
-                f'{ou_rec["prob"]*100:.0f}% probabilidad'
-                if ou_rec.get('prob') is not None else ''
+        if best is not None:
+            bk, bv = best
+            b_prob = bv['prob']
+            b_label = bv['label']
+            b_ev = expected_value(b_prob, _ODDS_MAP.get(bk)) if _ODDS_MAP.get(bk, 0) > 1.0 else None
+            if b_ev is not None:
+                _ec = "#00d4aa" if b_ev > 0 else "#f43f5e"
+                _eg = "rgba(0,212,170,0.5)" if b_ev > 0 else "rgba(244,63,94,0.5)"
+                ev_line = (
+                    f'<div style="font-size:1.2rem;font-weight:900;color:{_ec};'
+                    f'margin-top:8px;letter-spacing:0.5px;text-shadow:0 0 14px {_eg}">'
+                    f'EV {b_ev:+.2f} &nbsp;<span style="font-size:0.85rem;font-weight:600;opacity:0.8">({b_ev*100:+.1f}%)</span></div>'
+                )
+            else:
+                ev_line = ''
+            best_inner = (
+                f'<div style="font-size:0.62rem;color:#00d4aa;font-weight:800;text-transform:uppercase;'
+                f'letter-spacing:0.6px;margin-bottom:10px">⭐ APUESTA RECOMENDADA</div>'
+                f'<div style="font-size:1.4rem;font-weight:900;color:#00d4aa">{b_label}</div>'
+                f'<div style="font-size:0.95rem;font-weight:700;color:#e8eaf0;margin-top:4px">{b_prob * 100:.1f}% de probabilidad</div>'
+                f'{ev_line}'
+                f'<div style="margin-top:12px;font-size:0.82rem;font-weight:600;color:#555">'
+                f'→ {combined["combined_label"]}</div>'
             )
-            inner_goles = (
-                f'<div style="background:#0a0c10;border-radius:10px;padding:14px 16px">'
-                f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;'
-                f'letter-spacing:0.5px;margin-bottom:6px">Goles</div>'
-                f'<div style="font-size:1.05rem;font-weight:800;color:{ou_color}">{ou_rec["label"]}</div>'
-                f'<div style="font-size:0.65rem;color:#555;font-weight:700;margin-top:4px">{ou_prob_text}</div>'
-                f'</div>'
-            )
+            st.markdown(_card(best_inner, border='#00d4aa'), unsafe_allow_html=True)
         else:
-            inner_goles = '<div></div>'
-
-        card_body = (
-            f'<div style="font-size:0.62rem;color:#444;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:0.5px;margin-bottom:12px">Recomendación de apuesta</div>'
-            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
-            f'{inner_resultado}{inner_goles}'
-            f'</div>'
-            f'<div style="margin-top:14px;font-size:0.88rem;font-weight:700;color:{rec_color}">'
-            f'→ {combined["combined_label"]}</div>'
-        )
-        st.markdown(_card(card_body, border=rec_color), unsafe_allow_html=True)
-
-        user_odds = {'H': odds_h or None, 'D': odds_d or None, 'A': odds_a or None}
-        evs = expected_values(probs, user_odds)
-        if evs:
-            ev_cols = st.columns(len(evs))
-            names = {
-                'H': f'Local {odds_h:.2f}',
-                'D': f'Empate {odds_d:.2f}',
-                'A': f'Visitante {odds_a:.2f}',
-            }
-            for col, (mkt, ev) in zip(ev_cols, evs.items()):
-                col.metric(names[mkt], f"EV {ev:+.1%}",
-                           delta="valor" if ev > 0 else "sin valor",
-                           delta_color="normal" if ev > 0 else "inverse")
-
-        if ou_rec and ou_rec['market'] and ou_prob is not None:
-            odd_val = odds_over if ou_rec['market'] == 'Over 2.5' else odds_under
-            if odd_val and odd_val > 1.0:
-                p_val = ou_prob if ou_rec['market'] == 'Over 2.5' else (1 - ou_prob)
-                ev_ou = round(p_val * odd_val - 1.0, 3)
-                mkt_name = f'{ou_rec["market"]} {odd_val:.2f}'
-                ou_col = st.columns(1)[0]
-                ou_col.metric(mkt_name, f"EV {ev_ou:+.1%}",
-                              delta="valor" if ev_ou > 0 else "sin valor",
-                              delta_color="normal" if ev_ou > 0 else "inverse")
+            no_bet_inner = (
+                f'<div style="font-size:0.62rem;color:#555;font-weight:800;text-transform:uppercase;'
+                f'letter-spacing:0.6px;margin-bottom:10px">SIN APUESTA CLARA</div>'
+                f'<div style="font-size:0.95rem;font-weight:600;color:#888">'
+                f'Ningún mercado supera el umbral del 60%. Proceder con cautela.</div>'
+                f'<div style="margin-top:10px;font-size:0.82rem;font-weight:600;color:#555">'
+                f'→ {combined["combined_label"]}</div>'
+            )
+            st.markdown(_card(no_bet_inner, border='#2a2d3a'), unsafe_allow_html=True)
 
         st.caption(
             "Herramienta estadística — las predicciones no garantizan resultados. "
             "Apuesta con responsabilidad."
         )
 
-        # ── Squads ──
+        # 5. Squads
         home_squad = get_team_squad(players_df, home_team)
         away_squad = get_team_squad(players_df, away_team)
         if players_df is None:
@@ -551,9 +603,9 @@ if predict_btn:
                     ))
                 fig_sq.update_layout(**_LAYOUT, barmode='group', height=300,
                                      yaxis=dict(range=[0, 100]))
-                st.plotly_chart(fig_sq, use_container_width=True)
+                st.plotly_chart(fig_sq, width='stretch', theme=None)
 
-        # ── Rendimiento reciente ──
+        # 6. Rendimiento reciente (solo aqui, no en otros tabs)
         with st.expander("Rendimiento reciente — últimos 5 partidos"):
             h_perf = get_recent_performance(df, home_team)
             a_perf = get_recent_performance(df, away_team)
@@ -585,7 +637,7 @@ if predict_btn:
                     legend=dict(orientation='h', y=1.18, font=dict(size=11)),
                     bargap=0.25, bargroupgap=0.1,
                 )
-                st.plotly_chart(fig_perf, use_container_width=True)
+                st.plotly_chart(fig_perf, width='stretch', theme=None)
 
                 fig_spark = make_subplots(rows=2, cols=2, subplot_titles=stat_labels,
                                           vertical_spacing=0.18, horizontal_spacing=0.12)
@@ -614,7 +666,7 @@ if predict_btn:
                     **_LAYOUT, height=200,
                     legend=dict(orientation='h', y=1.12, font=dict(size=11)),
                 )
-                st.plotly_chart(fig_spark, use_container_width=True)
+                st.plotly_chart(fig_spark, width='stretch', theme=None)
             else:
                 st.caption(
                     "Las estadísticas de partido solo están disponibles para ligas de "
@@ -639,7 +691,7 @@ if predict_btn:
         fig_radar.update_layout(
             **_LAYOUT,
             polar=dict(
-                radialaxis=dict(visible=True, range=[0,1], color='#2a2d3a',
+                radialaxis=dict(visible=True, range=[0, 1], color='#2a2d3a',
                                 showticklabels=False, gridcolor='#1e2130'),
                 angularaxis=dict(color='#b0b3be', gridcolor='#1e2130'),
                 bgcolor='#13161d',
@@ -647,18 +699,18 @@ if predict_btn:
             height=420,
             legend=dict(orientation='h', y=-0.06, x=0.25, font=dict(size=13, color='#c8cad4')),
         )
-        st.plotly_chart(fig_radar, use_container_width=True)
+        st.plotly_chart(fig_radar, width='stretch', theme=None)
 
         st.markdown("### Comparativa de métricas")
         rows = [
             ("Goles marcados / Partido",   home_stats['goals_scored_per_game'],          away_stats['goals_scored_per_game'],          True),
-            ("Goles encajados / Partido", home_stats['goals_conceded_per_game'],        away_stats['goals_conceded_per_game'],        False),
-            ("% victorias",               f"{home_stats['win_rate']*100:.1f}%",         f"{away_stats['win_rate']*100:.1f}%",         True),
-            ("% empates",                 f"{home_stats['draw_rate']*100:.1f}%",        f"{away_stats['draw_rate']*100:.1f}%",        None),
-            ("% derrotas",                f"{home_stats['loss_rate']*100:.1f}%",        f"{away_stats['loss_rate']*100:.1f}%",        False),
-            ("% partidos con gol",        f"{home_stats['scoring_rate']*100:.1f}%",     f"{away_stats['scoring_rate']*100:.1f}%",     True),
-            ("% portería a 0",            f"{home_stats['clean_sheet_rate']*100:.1f}%", f"{away_stats['clean_sheet_rate']*100:.1f}%", True),
-            ("Total partidos",            home_stats['total_matches'],                  away_stats['total_matches'],                  None),
+            ("Goles encajados / Partido",  home_stats['goals_conceded_per_game'],         away_stats['goals_conceded_per_game'],         False),
+            ("% victorias",                f"{home_stats['win_rate']*100:.1f}%",          f"{away_stats['win_rate']*100:.1f}%",          True),
+            ("% empates",                  f"{home_stats['draw_rate']*100:.1f}%",         f"{away_stats['draw_rate']*100:.1f}%",         None),
+            ("% derrotas",                 f"{home_stats['loss_rate']*100:.1f}%",         f"{away_stats['loss_rate']*100:.1f}%",         False),
+            ("% partidos con gol",         f"{home_stats['scoring_rate']*100:.1f}%",      f"{away_stats['scoring_rate']*100:.1f}%",      True),
+            ("% portería a 0",             f"{home_stats['clean_sheet_rate']*100:.1f}%",  f"{away_stats['clean_sheet_rate']*100:.1f}%",  True),
+            ("Total partidos",             home_stats['total_matches'],                   away_stats['total_matches'],                   None),
         ]
         table = '<div style="background:#13161d;border:1px solid #1e2130;border-radius:14px;overflow:hidden">'
         for i, (name, hv, av, hib) in enumerate(rows):
@@ -666,10 +718,10 @@ if predict_btn:
             hs = as2 = "color:#c8cad4"
             if hib is not None:
                 try:
-                    hn = float(str(hv).replace('%',''))
-                    an = float(str(av).replace('%',''))
+                    hn = float(str(hv).replace('%', ''))
+                    an = float(str(av).replace('%', ''))
                     wh = (hn >= an) if hib else (hn <= an)
-                    wa = (an > hn)  if hib else (an < hn)
+                    wa = (an > hn) if hib else (an < hn)
                     hs  = "color:#00d4aa;font-weight:700" if wh else "color:#555"
                     as2 = "color:#00d4aa;font-weight:700" if wa else "color:#555"
                 except (ValueError, TypeError):
@@ -701,15 +753,16 @@ if predict_btn:
                     unsafe_allow_html=True,
                 )
 
-    # ═══════════════ TAB 3 · HEAD-TO-HEAD ══════════════════════════════════
+    # ═══════════════ TAB 3 · CARA A CARA & HISTORIAL ═══════════════════════
     with tab3:
+        # ── H2H section ──
         total_h2h = h2h['home_wins'] + h2h['draws'] + h2h['away_wins']
         if total_h2h == 0:
             st.info(f"No se encontraron partidos directos entre **{home_team}** y **{away_team}**.")
         else:
             c1, c2, c3 = st.columns(3)
             c1.metric(f"{home_team}", h2h['home_wins'])
-            c2.metric("Empates",         h2h['draws'])
+            c2.metric("Empates",     h2h['draws'])
             c3.metric(f"{away_team}", h2h['away_wins'])
 
             left, right = st.columns(2)
@@ -718,7 +771,7 @@ if predict_btn:
                     labels=[home_team, "Draw", away_team],
                     values=[h2h['home_wins'], h2h['draws'], h2h['away_wins']],
                     hole=0.62,
-                    marker=dict(colors=['#00d4aa','#f59e0b','#f43f5e'],
+                    marker=dict(colors=['#00d4aa', '#f59e0b', '#f43f5e'],
                                 line=dict(color='#13161d', width=3)),
                     textinfo='label+percent',
                     textfont=dict(size=12),
@@ -729,20 +782,20 @@ if predict_btn:
                     title=dict(text="<b>Distribución histórica</b>", x=0.5,
                                font=dict(size=13, color='#555')),
                 )
-                st.plotly_chart(fig_donut, use_container_width=True)
+                st.plotly_chart(fig_donut, width='stretch', theme=None)
 
             with right:
                 st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
                 gc1, gc2, gc3 = st.columns(3)
                 gc1.metric(f"{home_team}", int(h2h['home_goals_total']))
-                gc2.metric("Goles / Partido",   h2h['avg_goals_per_game'])
+                gc2.metric("Goles / Partido", h2h['avg_goals_per_game'])
                 gc3.metric(f"{away_team}", int(h2h['away_goals_total']))
 
                 if h2h['last_matches']:
                     chron = list(reversed(h2h['last_matches']))
                     dates = [m['date'] for m in chron]
-                    hg = [m['home_score'] if m['home_team']==home_team else m['away_score'] for m in chron]
-                    ag = [m['away_score'] if m['home_team']==home_team else m['home_score'] for m in chron]
+                    hg = [m['home_score'] if m['home_team'] == home_team else m['away_score'] for m in chron]
+                    ag = [m['away_score'] if m['home_team'] == home_team else m['home_score'] for m in chron]
                     fig_g = go.Figure()
                     fig_g.add_trace(go.Bar(name=home_team, x=dates, y=hg,
                                           marker=dict(color='#00d4aa', line=dict(width=0))))
@@ -756,23 +809,26 @@ if predict_btn:
                         xaxis=dict(tickfont=dict(size=10)),
                         bargap=0.25, bargroupgap=0.08,
                     )
-                    st.plotly_chart(fig_g, use_container_width=True)
+                    st.plotly_chart(fig_g, width='stretch', theme=None)
 
             if h2h['last_matches']:
                 st.markdown("### Últimos partidos")
                 for m in h2h['last_matches']:
                     ht, at = m['home_team'], m['away_team']
                     hs, as_ = m['home_score'], m['away_score']
-                    res = ('W' if (ht==home_team and hs>as_) or (at==home_team and as_>hs)
-                           else 'D' if hs==as_ else 'L')
+                    res = ('W' if (ht == home_team and hs > as_) or (at == home_team and as_ > hs)
+                           else 'D' if hs == as_ else 'L')
                     st.markdown(
                         _match_row(m['date'], f"{ht} {hs} — {as_} {at}",
                                    "", m['tournament'], _RC[res]),
                         unsafe_allow_html=True,
                     )
 
-    # ═══════════════ TAB 4 · HISTORIAL ═════════════════════════════════════
-    with tab4:
+        # ── Separador ──
+        st.markdown("<hr style='margin:2rem 0'>", unsafe_allow_html=True)
+        st.markdown("### Historial de partidos", unsafe_allow_html=False)
+
+        # ── Historial selector ──
         hc1, hc2 = st.columns([2, 1])
         with hc1:
             sel = st.selectbox("Equipo", [home_team, away_team], key="hist_team")
@@ -780,14 +836,14 @@ if predict_btn:
             n_opt = st.select_slider("Partidos", options=[10, 20, 50, 100, 'Todos'],
                                      value=20, key="hist_n")
 
-        recent = get_recent_matches(df, sel, n=None if n_opt=='Todos' else int(n_opt))
+        recent = get_recent_matches(df, sel, n=None if n_opt == 'Todos' else int(n_opt))
 
         if len(recent) == 0:
             st.info("No se encontraron partidos.")
         else:
-            wins_h  = int((recent['result']=='W').sum())
-            draws_h = int((recent['result']=='D').sum())
-            loss_h  = int((recent['result']=='L').sum())
+            wins_h  = int((recent['result'] == 'W').sum())
+            draws_h = int((recent['result'] == 'D').sum())
+            loss_h  = int((recent['result'] == 'L').sum())
             sc1, sc2, sc3, sc4, sc5 = st.columns(5)
             sc1.metric("Victorias",       wins_h)
             sc2.metric("Empates",         draws_h)
@@ -820,12 +876,12 @@ if predict_btn:
                 yaxis=dict(gridcolor='#1e2130'),
                 xaxis=dict(gridcolor='#1e2130'),
             )
-            st.plotly_chart(fig_tl, use_container_width=True)
+            st.plotly_chart(fig_tl, width='stretch', theme=None)
 
             st.markdown("### Partidos")
             for _, row in recent.iterrows():
                 color   = _RC[row['result']]
-                res_txt = {'W':'Victoria','D':'Empate','L':'Derrota'}[row['result']]
+                res_txt = {'W': 'Victoria', 'D': 'Empate', 'L': 'Derrota'}[row['result']]
                 gf, ga  = int(row['goals_for']), int(row['goals_against'])
                 st.markdown(
                     _match_row(
@@ -838,29 +894,3 @@ if predict_btn:
                     ),
                     unsafe_allow_html=True,
                 )
-
-    # ═══════════════ TAB 5 · LEAGUE ════════════════════════════════════════
-    with tab5:
-        if league_param is None:
-            st.info("Selecciona una competición específica arriba para ver estadísticas de liga.")
-        else:
-            st.markdown(f"### {league_param}")
-            lc1, lc2 = st.columns(2)
-            for col, team in [(lc1, home_team), (lc2, away_team)]:
-                with col:
-                    lstats = get_league_stats(df, team, league_param)
-                    st.markdown(f"**{team}**")
-                    if lstats['total_matches'] == 0:
-                        st.caption(f"Sin datos para {team} en {league_param}.")
-                    else:
-                        m1, m2, m3 = st.columns(3)
-                        m1.metric("Partidos", lstats['total_matches'])
-                        m2.metric("% victorias", f"{lstats['win_rate']*100:.0f}%")
-                        m3.metric("Goles / Partido", lstats['goals_scored_per_game'])
-                        badges = " ".join(_badge(r) for r in lstats['form'][-5:]) or "—"
-                        st.markdown(
-                            f'<div style="font-size:0.62rem;color:#444;font-weight:700;'
-                            f'text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px">RECENT FORM</div>'
-                            f'{badges}',
-                            unsafe_allow_html=True,
-                        )

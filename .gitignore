@@ -8,6 +8,10 @@ venv/
 .vscode/
 .idea/
 data/raw/
+.env
+.env.*
+.superpowers/
+debug_*.py
 !model.pkl
 !data/results.csv
 !data/all_matches.csv

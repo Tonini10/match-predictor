@@ -31,13 +31,18 @@ def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators
     accuracy = clf.score(X_test, y_test)
     print(f"Test accuracy (result): {accuracy:.3f}")
 
-    y_ou = training_df['over_2_5']
-    y_ou_train, y_ou_test = y_ou.iloc[:split], y_ou.iloc[split:]
+    def _train_binary(y_col):
+        y = training_df[y_col]
+        clf_b = XGBClassifier(n_estimators=n_estimators, random_state=42, eval_metric='logloss')
+        clf_b.fit(X_train, y.iloc[:split])
+        acc = clf_b.score(X_test, y.iloc[split:])
+        print(f"Test accuracy ({y_col}): {acc:.3f}")
+        return clf_b
 
-    clf_ou = XGBClassifier(n_estimators=n_estimators, random_state=42, eval_metric='logloss')
-    clf_ou.fit(X_train, y_ou_train)
-    ou_accuracy = clf_ou.score(X_test, y_ou_test)
-    print(f"Test accuracy (over/under): {ou_accuracy:.3f}")
+    clf_ou15 = _train_binary('over_1_5')
+    clf_ou   = _train_binary('over_2_5')
+    clf_ou35 = _train_binary('over_3_5')
+    clf_btts = _train_binary('btts')
 
     joblib.dump({
         'model': clf,
@@ -46,7 +51,10 @@ def train(data_path='data/all_matches.csv', model_path='model.pkl', n_estimators
         'league_encoder': le,
         'result_encoder': result_encoder,
         'players_df': players_df,
-        'model_ou': clf_ou,
+        'model_ou':   clf_ou,
+        'model_ou15': clf_ou15,
+        'model_ou35': clf_ou35,
+        'model_btts': clf_btts,
     }, model_path)
     print(f"Model saved to {model_path}")
     return clf, accuracy

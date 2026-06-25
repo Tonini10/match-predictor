@@ -49,12 +49,18 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
 
     label = _RESULT_LABELS[predicted].replace('{home}', home_team).replace('{away}', away_team)
 
-    over_under_prob = None
-    if clf_ou is not None:
-        ou_probas = clf_ou.predict_proba(X)[0]
-        ou_classes = list(clf_ou.classes_)
-        if 1 in ou_classes:
-            over_under_prob = float(ou_probas[ou_classes.index(1)])
+    def _binary_prob(model_key):
+        m = artifact.get(model_key)
+        if m is None:
+            return None
+        p = m.predict_proba(X)[0]
+        cls = list(m.classes_)
+        return float(p[cls.index(1)]) if 1 in cls else None
+
+    over_1_5_prob = _binary_prob('model_ou15')
+    over_2_5_prob = _binary_prob('model_ou')
+    over_3_5_prob = _binary_prob('model_ou35')
+    btts_prob     = _binary_prob('model_btts')
 
     return {
         'result': predicted,
@@ -62,7 +68,11 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
         'probabilities': {cls: float(p) for cls, p in zip(classes, probas)},
         'home_team': home_team,
         'away_team': away_team,
-        'over_under_prob': over_under_prob,
+        'over_1_5_prob': over_1_5_prob,
+        'over_2_5_prob': over_2_5_prob,
+        'over_3_5_prob': over_3_5_prob,
+        'btts_prob':     btts_prob,
+        'over_under_prob': over_2_5_prob,  # backward compat
     }
 
 

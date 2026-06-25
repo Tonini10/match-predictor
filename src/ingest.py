@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pandas as pd
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=False)
+except ImportError:
+    pass
+
 from src.ingest_api import fetch_wc_matches
+from src.ingest_apifootball import fetch_wc_matches_apifootball
 
 LEAGUES = {
     'E0': 'Premier League',
@@ -142,27 +149,30 @@ def combine_datasets(clubs_df, international_path='data/results.csv'):
     return combined.sort_values('date').reset_index(drop=True)
 
 
-def merge_wc_data(combined_df, api_key):
-    """Append finished WC 2026 matches from football-data.org to combined_df."""
-    wc = fetch_wc_matches(api_key)
-    if len(wc) == 0:
+def _strip_tz(col):
+    if col.dt.tz is not None:
+        try:
+            return col.dt.tz_localize(None)
+        except TypeError:
+            return col.dt.tz_convert(None)
+    return col
+
+
+def _merge_wc_frame(combined_df, wc):
+    """Merge a WC DataFrame into combined_df, deduplicating by (date, home, away)."""
+    if wc is None or len(wc) == 0:
         return combined_df
-
-    def _strip_tz(col):
-        if col.dt.tz is not None:
-            try:
-                return col.dt.tz_localize(None)
-            except TypeError:
-                return col.dt.tz_convert(None)
-        return col
-
     combined_df = combined_df.copy()
     combined_df['date'] = _strip_tz(pd.to_datetime(combined_df['date']))
     wc = wc.copy()
     wc['date'] = _strip_tz(pd.to_datetime(wc['date']))
-
-    merged = pd.concat([combined_df, wc], ignore_index=True).sort_values('date').reset_index(drop=True)
+    merged = pd.concat([combined_df, wc], ignore_index=True).sort_values('date', kind='stable').reset_index(drop=True)
     return merged.drop_duplicates(subset=['date', 'home_team', 'away_team'], keep='last').reset_index(drop=True)
+
+
+def merge_wc_data(combined_df, api_key):
+    """Append finished WC 2026 matches from football-data.org to combined_df."""
+    return _merge_wc_frame(combined_df, fetch_wc_matches(api_key))
 
 
 if __name__ == '__main__':
@@ -176,11 +186,34 @@ if __name__ == '__main__':
     print('Saved data/clubs.csv')
     combined = combine_datasets(clubs)
     api_key = os.environ.get('FOOTBALL_DATA_API_KEY')
+    af_key  = os.environ.get('API_FOOTBALL_KEY')
+
+    wc_frames = []
     if api_key:
-        print('Fetching FIFA World Cup 2026 results...')
-        combined = merge_wc_data(combined, api_key)
+        print('Fetching WC 2026 from football-data.org...')
+        df_fd = fetch_wc_matches(api_key)
+        if not df_fd.empty:
+            wc_frames.append(df_fd)
+            print(f'  football-data.org: {len(df_fd)} matches')
+    if af_key:
+        print('Fetching WC 2026 from API-Football...')
+        df_af = fetch_wc_matches_apifootball(af_key)
+        if not df_af.empty:
+            wc_frames.append(df_af)
+            print(f'  API-Football: {len(df_af)} matches')
+
+    if wc_frames:
+        wc_all = pd.concat(wc_frames, ignore_index=True)
+        # Deduplicate — keep first occurrence per (date, home_team, away_team)
+        wc_all['date'] = pd.to_datetime(wc_all['date'])
+        wc_all = (wc_all
+                  .sort_values('date', kind='stable')
+                  .drop_duplicates(subset=['date', 'home_team', 'away_team'], keep='first')
+                  .reset_index(drop=True))
+        print(f'WC 2026 total unique matches: {len(wc_all)}')
+        combined = _merge_wc_frame(combined, wc_all)
         print(f'Dataset after WC merge: {len(combined)} total matches')
     else:
-        print('FOOTBALL_DATA_API_KEY not set — skipping WC 2026 data.')
+        print('No API keys set — skipping WC 2026 data. Add keys to .env')
     combined.to_csv('data/all_matches.csv', index=False)
     print(f'Saved data/all_matches.csv ({len(combined)} total matches)')
