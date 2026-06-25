@@ -460,35 +460,83 @@ if predict_btn:
             border=res_color,
         ), unsafe_allow_html=True)
 
-        # 1b. Scoreline card
+        # 1b. Scoreline heatmap
         if scorelines and lam_h is not None:
+            import math as _math
+
             top_h, top_a, top_p = scorelines[0]
-            others = scorelines[1:]
-            others_html = ''.join(
-                f'<div style="display:inline-block;margin:4px 6px;padding:6px 14px;'
-                f'background:#13161d;border:1px solid #1e2130;border-radius:10px;'
-                f'font-size:0.85rem;font-weight:700;color:#b0b3be;letter-spacing:0.3px">'
-                f'{h} — {a} &nbsp;<span style="font-size:0.75rem;color:#555;font-weight:600">{p*100:.1f}%</span></div>'
-                for h, a, p in others
+
+            # Build full probability matrix 0–6 x 0–6
+            _max_g = 6
+            _goals = list(range(_max_g + 1))
+
+            def _pmf(k, lam):
+                try:
+                    return (lam ** k) * _math.exp(-lam) / _math.factorial(k)
+                except OverflowError:
+                    return 0.0
+
+            z_mat = [[_pmf(h, lam_h) * _pmf(a, lam_a) * 100 for a in _goals] for h in _goals]
+            text_mat = [[f"{z_mat[h][a]:.1f}%" for a in _goals] for h in _goals]
+
+            fig_sc = go.Figure(go.Heatmap(
+                z=z_mat,
+                x=[f"{a}" for a in _goals],
+                y=[f"{h}" for h in _goals],
+                text=text_mat,
+                texttemplate="%{text}",
+                textfont=dict(size=11, color='#e8eaf0', family='Rajdhani, sans-serif'),
+                colorscale=[
+                    [0.0,  '#0a0c10'],
+                    [0.25, '#0d2e2a'],
+                    [0.55, '#005c4b'],
+                    [0.8,  '#00a884'],
+                    [1.0,  '#00d4aa'],
+                ],
+                showscale=False,
+                hovertemplate=(
+                    f"<b>{home_team} %{{y}} — %{{x}} {away_team}</b><br>"
+                    "Probabilidad: %{text}<extra></extra>"
+                ),
+            ))
+
+            # Highlight most probable cell with a contrasting border shape
+            fig_sc.add_shape(
+                type='rect',
+                x0=top_a - 0.5, x1=top_a + 0.5,
+                y0=top_h - 0.5, y1=top_h + 0.5,
+                line=dict(color='#00d4aa', width=3),
+                fillcolor='rgba(0,0,0,0)',
+                layer='above',
             )
-            xg_html = (
-                f'<div style="margin-top:12px;font-size:0.72rem;color:#555;font-weight:600;letter-spacing:0.3px">'
-                f'Goles esperados &nbsp;·&nbsp; '
-                f'<span style="color:#b0b3be">{home_team[:12]} <b>{lam_h:.2f}</b></span>'
-                f'&nbsp;&nbsp;|&nbsp;&nbsp;'
-                f'<span style="color:#b0b3be">{away_team[:12]} <b>{lam_a:.2f}</b></span></div>'
+
+            fig_sc.update_layout(
+                **_LAYOUT,
+                title=dict(
+                    text=(
+                        f"<b>MARCADOR MÁS PROBABLE: "
+                        f"<span style='color:#00d4aa'>{top_h} — {top_a}</span>"
+                        f"  ({top_p*100:.1f}%)</b>"
+                        f"&nbsp;&nbsp;&nbsp;"
+                        f"<span style='font-size:11px;color:#555'>xG: {home_team} {lam_h:.2f} · {away_team} {lam_a:.2f}</span>"
+                    ),
+                    font=dict(size=13, color='#e8eaf0'),
+                    x=0,
+                ),
+                xaxis=dict(
+                    title=dict(text=f"Goles {away_team} (Visitante)", font=dict(size=11)),
+                    tickfont=dict(size=12, color='#b0b3be'),
+                    side='top',
+                ),
+                yaxis=dict(
+                    title=dict(text=f"Goles {home_team} (Local)", font=dict(size=11)),
+                    tickfont=dict(size=12, color='#b0b3be'),
+                    autorange='reversed',
+                ),
+                height=380,
+                margin=dict(l=60, r=20, t=80, b=20),
             )
-            score_inner = (
-                f'<div style="font-size:0.62rem;color:#00d4aa;font-weight:800;text-transform:uppercase;'
-                f'letter-spacing:0.7px;margin-bottom:10px">MARCADOR MÁS PROBABLE</div>'
-                f'<div style="font-size:3rem;font-weight:900;color:#e8eaf0;letter-spacing:2px;line-height:1">'
-                f'{top_h} &nbsp;—&nbsp; {top_a}</div>'
-                f'<div style="font-size:0.8rem;color:#555;font-weight:700;margin-top:6px">'
-                f'{top_p*100:.1f}% de probabilidad</div>'
-                f'<div style="margin-top:14px">{others_html}</div>'
-                f'{xg_html}'
-            )
-            st.markdown(_card(score_inner, border='#1e2130'), unsafe_allow_html=True)
+            st.plotly_chart(fig_sc, width='stretch', theme=None)
 
         # 2. Barra de probabilidades 1X2
         h_v, d_v, a_v = probs.get('H', 0), probs.get('D', 0), probs.get('A', 0)
