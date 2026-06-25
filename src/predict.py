@@ -1,4 +1,6 @@
+import math
 import functools
+import numpy as np
 import pandas as pd
 import joblib
 from src.preprocess import build_features_for_prediction, FEATURE_COLS
@@ -78,3 +80,70 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
 
 def get_team_match_count(df, team):
     return int(((df['home_team'] == team) | (df['away_team'] == team)).sum())
+
+
+def _poisson_pmf(k, lam):
+    if lam <= 0:
+        return 1.0 if k == 0 else 0.0
+    try:
+        return (lam ** k) * math.exp(-lam) / math.factorial(k)
+    except OverflowError:
+        return 0.0
+
+
+def predict_scoreline(df, home_team, away_team, is_neutral=False, top_n=5, max_goals=8):
+    """Return (scorelines, lam_home, lam_away) using a Poisson strength model.
+
+    scorelines: list of (home_goals, away_goals, probability) sorted by probability desc.
+    lam_home / lam_away: expected goals per team.
+    """
+    # Prefer international matches; fall back to full dataset if too small
+    if 'competition_type' in df.columns:
+        base = df[df['competition_type'] == 'international']
+        if len(base) < 200:
+            base = df
+    else:
+        base = df
+
+    base = base.dropna(subset=['home_score', 'away_score'])
+    avg_h = base['home_score'].mean()
+    avg_a = base['away_score'].mean()
+    if avg_h == 0 or avg_a == 0:
+        avg_h = avg_a = 1.3
+
+    def _scored(team):
+        as_h = base.loc[base['home_team'] == team, 'home_score'].tolist()
+        as_a = base.loc[base['away_team'] == team, 'away_score'].tolist()
+        return as_h + as_a
+
+    def _conceded(team):
+        as_h = base.loc[base['home_team'] == team, 'away_score'].tolist()
+        as_a = base.loc[base['away_team'] == team, 'home_score'].tolist()
+        return as_h + as_a
+
+    def _strength(vals, baseline):
+        return np.mean(vals) / baseline if vals and baseline > 0 else 1.0
+
+    base_avg = (avg_h + avg_a) / 2
+    atk_h = _strength(_scored(home_team), base_avg)
+    def_h = _strength(_conceded(home_team), base_avg)
+    atk_a = _strength(_scored(away_team), base_avg)
+    def_a = _strength(_conceded(away_team), base_avg)
+
+    lam_h = float(np.clip(avg_h * atk_h * def_a, 0.1, 7.0))
+    lam_a = float(np.clip(avg_a * atk_a * def_h, 0.1, 7.0))
+
+    # Neutral venue: remove home advantage by averaging lambdas slightly
+    if is_neutral:
+        mid = (lam_h + lam_a) / 2
+        lam_h = lam_h * 0.85 + mid * 0.15
+        lam_a = lam_a * 0.85 + mid * 0.15
+
+    scorelines = []
+    for h in range(max_goals + 1):
+        for a in range(max_goals + 1):
+            p = _poisson_pmf(h, lam_h) * _poisson_pmf(a, lam_a)
+            scorelines.append((h, a, p))
+
+    scorelines.sort(key=lambda x: x[2], reverse=True)
+    return scorelines[:top_n], lam_h, lam_a

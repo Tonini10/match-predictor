@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-from src.predict import predict_match, get_team_match_count
+from src.predict import predict_match, get_team_match_count, predict_scoreline
 from src.stats import (
     get_team_overall_stats,
     get_radar_stats,
@@ -415,6 +415,11 @@ if predict_btn:
         st.error(f"Error: {e}")
         st.stop()
 
+    try:
+        scorelines, lam_h, lam_a = predict_scoreline(df, home_team, away_team, is_neutral=is_neutral)
+    except Exception:
+        scorelines, lam_h, lam_a = [], None, None
+
     probs       = prediction['probabilities']
     res_key     = prediction['result']
     res_label   = prediction['result_label']
@@ -454,6 +459,36 @@ if predict_btn:
             f'{neutral_tag}</div></div>',
             border=res_color,
         ), unsafe_allow_html=True)
+
+        # 1b. Scoreline card
+        if scorelines and lam_h is not None:
+            top_h, top_a, top_p = scorelines[0]
+            others = scorelines[1:]
+            others_html = ''.join(
+                f'<div style="display:inline-block;margin:4px 6px;padding:6px 14px;'
+                f'background:#13161d;border:1px solid #1e2130;border-radius:10px;'
+                f'font-size:0.85rem;font-weight:700;color:#b0b3be;letter-spacing:0.3px">'
+                f'{h} — {a} &nbsp;<span style="font-size:0.75rem;color:#555;font-weight:600">{p*100:.1f}%</span></div>'
+                for h, a, p in others
+            )
+            xg_html = (
+                f'<div style="margin-top:12px;font-size:0.72rem;color:#555;font-weight:600;letter-spacing:0.3px">'
+                f'Goles esperados &nbsp;·&nbsp; '
+                f'<span style="color:#b0b3be">{home_team[:12]} <b>{lam_h:.2f}</b></span>'
+                f'&nbsp;&nbsp;|&nbsp;&nbsp;'
+                f'<span style="color:#b0b3be">{away_team[:12]} <b>{lam_a:.2f}</b></span></div>'
+            )
+            score_inner = (
+                f'<div style="font-size:0.62rem;color:#00d4aa;font-weight:800;text-transform:uppercase;'
+                f'letter-spacing:0.7px;margin-bottom:10px">MARCADOR MÁS PROBABLE</div>'
+                f'<div style="font-size:3rem;font-weight:900;color:#e8eaf0;letter-spacing:2px;line-height:1">'
+                f'{top_h} &nbsp;—&nbsp; {top_a}</div>'
+                f'<div style="font-size:0.8rem;color:#555;font-weight:700;margin-top:6px">'
+                f'{top_p*100:.1f}% de probabilidad</div>'
+                f'<div style="margin-top:14px">{others_html}</div>'
+                f'{xg_html}'
+            )
+            st.markdown(_card(score_inner, border='#1e2130'), unsafe_allow_html=True)
 
         # 2. Barra de probabilidades 1X2
         h_v, d_v, a_v = probs.get('H', 0), probs.get('D', 0), probs.get('A', 0)
