@@ -100,8 +100,10 @@ def build_training_data(df, n=5, players_df=None):
     if 'home_shots_on_target' in df.columns and 'away_shots_on_target' in df.columns:
         df['_home_conv'] = df['home_score'] / df['home_shots_on_target'].replace(0, float('nan'))
         df['_away_conv'] = df['away_score'] / df['away_shots_on_target'].replace(0, float('nan'))
+        # def_solidity = goals conceded per shot on target faced (higher = leakier defense)
         df['_home_sol'] = df['away_score'] / df['away_shots_on_target'].replace(0, float('nan'))
         df['_away_sol'] = df['home_score'] / df['home_shots_on_target'].replace(0, float('nan'))
+        # fillna(0) treats "no prior matches with shot data" as zero conversion/leakage
         df['home_conversion_rate'] = df.groupby('home_team')['_home_conv'].transform(
             lambda x: x.shift(1).rolling(n, min_periods=1).mean().fillna(0)
         )
@@ -210,7 +212,7 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
             return 0.0
         wins = (pd.to_numeric(matches[goal_for_col], errors='coerce') >
                 pd.to_numeric(matches[goal_against_col], errors='coerce')).astype(float)
-        return float(wins.ewm(span=5, min_periods=1).mean().iloc[-1]) if len(wins) else 0.0
+        return float(wins.ewm(span=5, min_periods=1).mean().iloc[-1])
 
     def conv_rate_avg(matches, goal_col, shot_col):
         if goal_col not in matches.columns or shot_col not in matches.columns:
@@ -223,6 +225,7 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
     match_stat_features['away_weighted_form'] = weighted_win_rate(am, 'away_score', 'home_score')
     match_stat_features['home_conversion_rate'] = conv_rate_avg(hm, 'home_score', 'home_shots_on_target')
     match_stat_features['away_conversion_rate'] = conv_rate_avg(am, 'away_score', 'away_shots_on_target')
+    # def_solidity = goals conceded per shot on target faced (higher = leakier defense)
     match_stat_features['home_def_solidity'] = conv_rate_avg(hm, 'away_score', 'away_shots_on_target')
     match_stat_features['away_def_solidity'] = conv_rate_avg(am, 'home_score', 'home_shots_on_target')
 
