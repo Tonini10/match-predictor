@@ -40,7 +40,7 @@ def test_build_training_data_returns_tuple(sample_df):
 
 def test_build_training_data_returns_expected_columns(sample_df):
     df, le = build_training_data(sample_df)
-    assert set(FEATURE_COLS + ['result']) == set(df.columns)
+    assert set(FEATURE_COLS + ['result', 'over_2_5']) == set(df.columns)
 
 
 def test_build_training_data_returns_label_encoder(sample_df):
@@ -261,3 +261,65 @@ def test_prediction_stats_zero_when_columns_missing(sample_df):
     feats = build_features_for_prediction(sample_df, 'Brazil', 'Germany')
     assert feats['home_avg_shots'] == 0.0
     assert feats['away_avg_red'] == 0.0
+
+
+def test_feature_cols_include_efficiency_features():
+    for col in ['home_weighted_form', 'away_weighted_form',
+                'home_conversion_rate', 'away_conversion_rate',
+                'home_def_solidity', 'away_def_solidity']:
+        assert col in FEATURE_COLS
+
+
+def test_training_weighted_form_first_match_is_zero(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    # Arsenal first home match — no prior data → 0
+    assert df.iloc[0]['home_weighted_form'] == 0.0
+
+
+def test_training_weighted_form_after_win(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    # Arsenal second home match (2020-02-01): prior = 1 win (2020-01-01 home 2-1)
+    # EWM of [1.0] = 1.0
+    assert df.iloc[1]['home_weighted_form'] == pytest.approx(1.0)
+
+
+def test_training_conversion_rate_first_match_is_zero(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    assert df.iloc[0]['home_conversion_rate'] == 0.0
+
+
+def test_training_conversion_rate_second_match(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    # Arsenal first home (2020-01-01): home_score=2, home_shots_on_target=4 → ratio=0.5
+    # Second home match uses rolling mean of prior [0.5]
+    assert df.iloc[1]['home_conversion_rate'] == pytest.approx(0.5)
+
+
+def test_training_new_features_zero_when_stats_missing(sample_df):
+    df, _ = build_training_data(sample_df)
+    assert (df['home_conversion_rate'] == 0.0).all()
+    assert (df['away_def_solidity'] == 0.0).all()
+    assert (df['home_weighted_form'] >= 0.0).all()
+
+
+def test_training_returns_over_2_5_column(sample_df_with_stats):
+    df, _ = build_training_data(sample_df_with_stats)
+    assert 'over_2_5' in df.columns
+    # Match 0: 2+1=3 > 2.5 → 1
+    assert df.iloc[0]['over_2_5'] == 1
+    # Match 2 (Chelsea vs Arsenal): 0+1=1 ≤ 2.5 → 0
+    assert df.iloc[2]['over_2_5'] == 0
+
+
+def test_prediction_features_include_efficiency(sample_df_with_stats):
+    feats = build_features_for_prediction(sample_df_with_stats, 'Arsenal', 'Chelsea')
+    for key in ['home_weighted_form', 'away_weighted_form',
+                'home_conversion_rate', 'away_conversion_rate',
+                'home_def_solidity', 'away_def_solidity']:
+        assert key in feats
+
+
+def test_prediction_efficiency_zero_when_stats_missing(sample_df):
+    feats = build_features_for_prediction(sample_df, 'Brazil', 'Germany')
+    assert feats['home_conversion_rate'] == 0.0
+    assert feats['away_def_solidity'] == 0.0

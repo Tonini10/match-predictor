@@ -40,6 +40,12 @@ FEATURE_COLS = [
     'away_avg_corners',
     'away_avg_yellow',
     'away_avg_red',
+    'home_weighted_form',
+    'away_weighted_form',
+    'home_conversion_rate',
+    'away_conversion_rate',
+    'home_def_solidity',
+    'away_def_solidity',
 ]
 
 
@@ -82,6 +88,38 @@ def build_training_data(df, n=5, players_df=None):
             df[f'home_{feat}'] = 0.0
             df[f'away_{feat}'] = 0.0
 
+    # Weighted form (EWM — recent results weigh more)
+    df['home_weighted_form'] = df.groupby('home_team')['home_win'].transform(
+        lambda x: x.shift(1).ewm(span=5, min_periods=1).mean().fillna(0)
+    )
+    df['away_weighted_form'] = df.groupby('away_team')['away_win'].transform(
+        lambda x: x.shift(1).ewm(span=5, min_periods=1).mean().fillna(0)
+    )
+
+    # Goal conversion rate and defensive solidity (require shot stats)
+    if 'home_shots_on_target' in df.columns and 'away_shots_on_target' in df.columns:
+        df['_home_conv'] = df['home_score'] / df['home_shots_on_target'].replace(0, float('nan'))
+        df['_away_conv'] = df['away_score'] / df['away_shots_on_target'].replace(0, float('nan'))
+        df['_home_sol'] = df['away_score'] / df['away_shots_on_target'].replace(0, float('nan'))
+        df['_away_sol'] = df['home_score'] / df['home_shots_on_target'].replace(0, float('nan'))
+        df['home_conversion_rate'] = df.groupby('home_team')['_home_conv'].transform(
+            lambda x: x.shift(1).rolling(n, min_periods=1).mean().fillna(0)
+        )
+        df['away_conversion_rate'] = df.groupby('away_team')['_away_conv'].transform(
+            lambda x: x.shift(1).rolling(n, min_periods=1).mean().fillna(0)
+        )
+        df['home_def_solidity'] = df.groupby('home_team')['_home_sol'].transform(
+            lambda x: x.shift(1).rolling(n, min_periods=1).mean().fillna(0)
+        )
+        df['away_def_solidity'] = df.groupby('away_team')['_away_sol'].transform(
+            lambda x: x.shift(1).rolling(n, min_periods=1).mean().fillna(0)
+        )
+        df.drop(columns=['_home_conv', '_away_conv', '_home_sol', '_away_sol'], inplace=True)
+    else:
+        for col in ['home_conversion_rate', 'away_conversion_rate',
+                    'home_def_solidity', 'away_def_solidity']:
+            df[col] = 0.0
+
     df['home_league_win_rate'] = rolling_mean_by_league('home_team', 'home_win')
     df['away_league_win_rate'] = rolling_mean_by_league('away_team', 'away_win')
     df['is_international'] = (df['competition_type'] == 'international').astype(int)
@@ -111,7 +149,8 @@ def build_training_data(df, n=5, players_df=None):
                     'away_team_attack', 'home_team_defense', 'away_team_defense', 'rating_diff']:
             df[col] = 0.0
 
-    return df[FEATURE_COLS + ['result']].copy(), le
+    df['over_2_5'] = ((df['home_score'] + df['away_score']) > 2.5).astype(int)
+    return df[FEATURE_COLS + ['result', 'over_2_5']].copy(), le
 
 
 def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=5,
@@ -165,6 +204,27 @@ def build_features_for_prediction(df, home_team, away_team, is_neutral=False, n=
     for feat, (h_col, a_col) in MATCH_STAT_SOURCES.items():
         match_stat_features[f'home_{feat}'] = stat_avg(hm, h_col)
         match_stat_features[f'away_{feat}'] = stat_avg(am, a_col)
+
+    def weighted_win_rate(matches, goal_for_col, goal_against_col):
+        if len(matches) == 0:
+            return 0.0
+        wins = (pd.to_numeric(matches[goal_for_col], errors='coerce') >
+                pd.to_numeric(matches[goal_against_col], errors='coerce')).astype(float)
+        return float(wins.ewm(span=5, min_periods=1).mean().iloc[-1]) if len(wins) else 0.0
+
+    def conv_rate_avg(matches, goal_col, shot_col):
+        if goal_col not in matches.columns or shot_col not in matches.columns:
+            return 0.0
+        goals = pd.to_numeric(matches[goal_col], errors='coerce')
+        shots = pd.to_numeric(matches[shot_col], errors='coerce').replace(0, float('nan'))
+        return safe_mean((goals / shots).dropna())
+
+    match_stat_features['home_weighted_form'] = weighted_win_rate(hm, 'home_score', 'away_score')
+    match_stat_features['away_weighted_form'] = weighted_win_rate(am, 'away_score', 'home_score')
+    match_stat_features['home_conversion_rate'] = conv_rate_avg(hm, 'home_score', 'home_shots_on_target')
+    match_stat_features['away_conversion_rate'] = conv_rate_avg(am, 'away_score', 'away_shots_on_target')
+    match_stat_features['home_def_solidity'] = conv_rate_avg(hm, 'away_score', 'away_shots_on_target')
+    match_stat_features['away_def_solidity'] = conv_rate_avg(am, 'home_score', 'home_shots_on_target')
 
     return {
         'home_avg_goals_scored':   safe_mean(hm['home_score']),
