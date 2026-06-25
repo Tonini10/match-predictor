@@ -66,3 +66,11 @@ def test_train_artifact_contains_players_df_key(sample_csv, tmp_path):
     artifact = joblib.load(model_path)
     # players_df can be None (no data/players.csv in test env) but key must exist
     assert 'players_df' in artifact
+
+
+def test_train_artifact_contains_model_ou(sample_csv, tmp_path):
+    model_path = str(tmp_path / 'model.pkl')
+    train(data_path=sample_csv, model_path=model_path, n_estimators=5)
+    artifact = joblib.load(model_path)
+    assert 'model_ou' in artifact
+    assert hasattr(artifact['model_ou'], 'predict_proba')

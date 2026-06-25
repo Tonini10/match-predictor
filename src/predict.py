@@ -19,6 +19,7 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
                   league=None, competition_type=None):
     artifact = _load_artifact(model_path)
     clf = artifact['model']
+    clf_ou = artifact.get('model_ou')
     n = artifact.get('n', 5)
     feature_cols = artifact['feature_cols']
     label_encoder = artifact.get('league_encoder')
@@ -48,12 +49,20 @@ def predict_match(home_team, away_team, df, model_path='model.pkl', is_neutral=F
 
     label = _RESULT_LABELS[predicted].replace('{home}', home_team).replace('{away}', away_team)
 
+    over_under_prob = None
+    if clf_ou is not None:
+        ou_probas = clf_ou.predict_proba(X)[0]
+        ou_classes = list(clf_ou.classes_)
+        if 1 in ou_classes:
+            over_under_prob = float(ou_probas[ou_classes.index(1)])
+
     return {
         'result': predicted,
         'result_label': label,
         'probabilities': {cls: float(p) for cls, p in zip(classes, probas)},
         'home_team': home_team,
         'away_team': away_team,
+        'over_under_prob': over_under_prob,
     }
 
 

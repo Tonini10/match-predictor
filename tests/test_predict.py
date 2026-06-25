@@ -66,8 +66,12 @@ def mock_model_path(tmp_path):
     # Wrap it to handle string labels
     wrapped_clf = XGBClassifierWrapper(clf, outcome_le)
 
+    clf_ou = XGBClassifier(n_estimators=2, random_state=42, eval_metric='logloss', verbosity=0)
+    y_ou = pd.Series([1, 0, 1, 0, 1, 0])
+    clf_ou.fit(X, y_ou)
+
     path = str(tmp_path / 'model.pkl')
-    joblib.dump({'model': wrapped_clf, 'feature_cols': FEATURE_COLS, 'n': 5, 'league_encoder': le}, path)
+    joblib.dump({'model': wrapped_clf, 'feature_cols': FEATURE_COLS, 'n': 5, 'league_encoder': le, 'model_ou': clf_ou}, path)
     return path
 
 
@@ -143,3 +147,28 @@ def test_predict_match_uses_players_df_from_artifact(sample_df, tmp_path):
     # tmp_path gives a unique path — no cache collision risk
     result = predict_match('Brazil', 'Germany', sample_df, path)
     assert result['result'] in ['H', 'D', 'A']
+
+
+def test_predict_match_includes_over_under_prob(sample_df, mock_model_path):
+    result = predict_match('Brazil', 'Germany', sample_df, mock_model_path)
+    assert 'over_under_prob' in result
+    assert result['over_under_prob'] is not None
+    assert 0.0 <= result['over_under_prob'] <= 1.0
+
+
+def test_predict_match_over_under_none_when_model_missing(sample_df, tmp_path):
+    from sklearn.preprocessing import LabelEncoder
+    le = LabelEncoder()
+    le.fit(['International'])
+    re = LabelEncoder()
+    re.fit(['A', 'D', 'H'])
+    clf = XGBClassifier(n_estimators=2, random_state=42, eval_metric='mlogloss', verbosity=0)
+    X = pd.DataFrame([[0.5] * len(FEATURE_COLS)] * 6, columns=FEATURE_COLS)
+    clf.fit(X, re.transform(['H', 'D', 'A', 'H', 'D', 'A']))
+    path = str(tmp_path / 'model_no_ou.pkl')
+    joblib.dump({
+        'model': clf, 'feature_cols': FEATURE_COLS, 'n': 5,
+        'league_encoder': le, 'result_encoder': re,
+    }, path)
+    result = predict_match('Brazil', 'Germany', sample_df, path)
+    assert result['over_under_prob'] is None
