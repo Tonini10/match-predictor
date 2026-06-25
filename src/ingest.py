@@ -147,6 +147,20 @@ def merge_wc_data(combined_df, api_key):
     wc = fetch_wc_matches(api_key)
     if len(wc) == 0:
         return combined_df
+
+    def _strip_tz(col):
+        if col.dt.tz is not None:
+            try:
+                return col.dt.tz_localize(None)
+            except TypeError:
+                return col.dt.tz_convert(None)
+        return col
+
+    combined_df = combined_df.copy()
+    combined_df['date'] = _strip_tz(pd.to_datetime(combined_df['date']))
+    wc = wc.copy()
+    wc['date'] = _strip_tz(pd.to_datetime(wc['date']))
+
     merged = pd.concat([combined_df, wc], ignore_index=True).sort_values('date').reset_index(drop=True)
     return merged.drop_duplicates(subset=['date', 'home_team', 'away_team'], keep='last').reset_index(drop=True)
 
