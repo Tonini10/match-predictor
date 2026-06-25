@@ -510,9 +510,11 @@ if predict_btn:
                 layer='above',
             )
 
-            fig_sc.update_layout(
+            _sc_layout = {
                 **_LAYOUT,
-                title=dict(
+                'margin': dict(l=60, r=20, t=80, b=20),
+                'height': 380,
+                'title': dict(
                     text=(
                         f"<b>MARCADOR MÁS PROBABLE: "
                         f"<span style='color:#00d4aa'>{top_h} — {top_a}</span>"
@@ -523,19 +525,18 @@ if predict_btn:
                     font=dict(size=13, color='#e8eaf0'),
                     x=0,
                 ),
-                xaxis=dict(
+                'xaxis': dict(
                     title=dict(text=f"Goles {away_team} (Visitante)", font=dict(size=11)),
                     tickfont=dict(size=12, color='#b0b3be'),
                     side='top',
                 ),
-                yaxis=dict(
+                'yaxis': dict(
                     title=dict(text=f"Goles {home_team} (Local)", font=dict(size=11)),
                     tickfont=dict(size=12, color='#b0b3be'),
                     autorange='reversed',
                 ),
-                height=380,
-                margin=dict(l=60, r=20, t=80, b=20),
-            )
+            }
+            fig_sc.update_layout(**_sc_layout)
             st.plotly_chart(fig_sc, width='stretch', theme=None)
 
         # 2. Barra de probabilidades 1X2
