@@ -285,12 +285,17 @@ _ODDS_MAP = {
     'BTTS_Y': odds_btts_y, 'BTTS_N': odds_btts_n,
 }
 
+_WC_HOSTS = {'United States', 'Mexico', 'Canada'}
+# En el Mundial 2026 solo USA/México/Canadá juegan de locales; el resto es sede neutral.
+_auto_neutral = home_team not in _WC_HOSTS
+
 opt_col, btn_col = st.columns([1, 3])
 with opt_col:
     is_neutral = st.checkbox(
         "Sede neutral",
-        value=True,
-        help="Activar para torneos en sede neutral",
+        value=_auto_neutral,
+        key=f"neutral_{home_team}",  # resetea al valor auto cuando cambia el equipo local
+        help="Se activa automáticamente salvo que el local sea USA, México o Canadá (sedes del Mundial 2026)",
     )
 with btn_col:
     predict_btn = st.button("Predecir Partido", type="primary", use_container_width=True)
