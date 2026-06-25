@@ -30,7 +30,7 @@ def fetch_wc_matches(api_key):
 
     rows = []
     for m in data.get('matches', []):
-        if m.get('status') != 'FINISHED':
+        if m.get('status') not in ('FINISHED', 'TIMED'):
             continue
         score = m.get('score', {}).get('fullTime', {})
         home_goals = score.get('home')
