@@ -4,13 +4,13 @@ Statistical tool only — does not guarantee outcomes.
 """
 
 MARKET_LABELS = {
-    'H': 'Home win (1)',
-    'D': 'Draw (X)',
-    'A': 'Away win (2)',
-    'HD': 'Double chance 1X (home win or draw)',
-    'DA': 'Double chance X2 (draw or away win)',
-    'HA': 'Double chance 12 (home or away win)',
-    None: 'No bet — match too unpredictable',
+    'H': 'Local gana (1)',
+    'D': 'Empate (X)',
+    'A': 'Visitante gana (2)',
+    'HD': 'Doble oportunidad 1X (local o empate)',
+    'DA': 'Doble oportunidad X2 (empate o visitante)',
+    'HA': 'Doble oportunidad 12 (local o visitante)',
+    None: 'Sin apuesta — partido muy incierto',
 }
 
 _ORDER = 'HDA'
@@ -50,3 +50,30 @@ def expected_values(probs, odds):
             continue
         out[market] = round(probs.get(market, 0.0) * odd - 1.0, 3)
     return out
+
+
+def recommend_combined(result_probs, ou_prob):
+    """Combine result and over/under recommendations into a single response."""
+    result_rec = recommend(result_probs)
+
+    if ou_prob is None:
+        ou_rec = None
+    elif ou_prob >= 0.60:
+        ou_rec = {'market': 'Over 2.5', 'label': 'Más de 2.5 goles', 'prob': ou_prob}
+    elif ou_prob <= 0.40:
+        ou_rec = {'market': 'Under 2.5', 'label': 'Menos de 2.5 goles', 'prob': round(1 - ou_prob, 3)}
+    else:
+        ou_rec = {'market': None, 'label': 'Goles inciertos', 'prob': None}
+
+    result_part = result_rec['label'] if result_rec['market'] else 'Sin recomendación'
+
+    if ou_rec is None:
+        combined_label = result_part
+    else:
+        combined_label = f"{result_part}  ·  {ou_rec['label']}"
+
+    return {
+        'result_rec': result_rec,
+        'ou_rec': ou_rec,
+        'combined_label': combined_label,
+    }

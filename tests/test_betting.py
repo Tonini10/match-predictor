@@ -48,3 +48,39 @@ def test_expected_values_skips_invalid_odds():
     probs = {'H': 0.50, 'D': 0.30, 'A': 0.20}
     evs = expected_values(probs, {'H': 1.0, 'D': None, 'A': 0.0})
     assert evs == {}
+
+
+from src.betting import recommend_combined
+
+
+def test_recommend_combined_both_confident():
+    rc = recommend_combined({'H': 0.65, 'D': 0.20, 'A': 0.15}, ou_prob=0.62)
+    assert rc['result_rec']['market'] == 'H'
+    assert rc['ou_rec']['market'] == 'Over 2.5'
+    assert 'Más de 2.5' in rc['combined_label']
+
+
+def test_recommend_combined_no_result_has_ou():
+    rc = recommend_combined({'H': 0.35, 'D': 0.33, 'A': 0.32}, ou_prob=0.38)
+    assert rc['result_rec']['market'] is None
+    assert rc['ou_rec']['market'] == 'Under 2.5'
+    assert rc['ou_rec']['prob'] == pytest.approx(0.62)
+
+
+def test_recommend_combined_grey_zone_ou():
+    rc = recommend_combined({'H': 0.65, 'D': 0.20, 'A': 0.15}, ou_prob=0.50)
+    assert rc['ou_rec']['market'] is None
+    assert 'incierto' in rc['ou_rec']['label'].lower()
+
+
+def test_recommend_combined_ou_none_skipped():
+    rc = recommend_combined({'H': 0.65, 'D': 0.20, 'A': 0.15}, ou_prob=None)
+    assert rc['ou_rec'] is None
+    assert rc['result_rec']['market'] == 'H'
+    assert '·' not in rc['combined_label']
+
+
+def test_recommend_combined_under_case():
+    rc = recommend_combined({'H': 0.20, 'D': 0.35, 'A': 0.45}, ou_prob=0.35)
+    assert rc['ou_rec']['market'] == 'Under 2.5'
+    assert 'Menos de 2.5' in rc['combined_label']
