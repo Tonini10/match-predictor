@@ -257,3 +257,36 @@ def get_recent_performance(df, team, n=5):
         vals = pd.to_numeric(vals, errors='coerce').dropna()
         out[key] = round(float(vals.mean()), 1) if len(vals) else None
     return out
+
+
+_SPARKLINE_SOURCES = {
+    'shots': ('home_shots', 'away_shots'),
+    'shots_on_target': ('home_shots_on_target', 'away_shots_on_target'),
+    'corners': ('home_corners', 'away_corners'),
+    'yellow': ('home_yellow', 'away_yellow'),
+    'red': ('home_red', 'away_red'),
+}
+
+
+def get_stat_sparklines(df, team, n=5):
+    """Per-match stat values for the team's last n matches, chronological order.
+
+    Returns dict[str, list[float]]. Empty list when the stat column is missing.
+    NaN values are excluded from each list.
+    """
+    df = df.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    matches = df[(df['home_team'] == team) | (df['away_team'] == team)]
+    matches = matches.sort_values('date').tail(n)
+
+    out = {}
+    for key, (h_col, a_col) in _SPARKLINE_SOURCES.items():
+        if h_col not in matches.columns or a_col not in matches.columns or len(matches) == 0:
+            out[key] = []
+            continue
+        vals = matches.apply(
+            lambda r: r[h_col] if r['home_team'] == team else r[a_col], axis=1
+        )
+        vals = pd.to_numeric(vals, errors='coerce')
+        out[key] = [v for v in vals.tolist() if not pd.isna(v)]
+    return out

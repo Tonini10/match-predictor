@@ -224,3 +224,45 @@ def test_recent_performance_none_when_all_nan(df_with_match_stats):
             df[c] = float('nan')
     perf = get_recent_performance(df, 'Arsenal')
     assert perf['shots'] is None
+
+
+# ── get_stat_sparklines ───────────────────────────────────────────────────
+
+from src.stats import get_stat_sparklines
+
+
+def test_get_stat_sparklines_returns_chronological_order(df_with_match_stats):
+    # Arsenal: home 2024-01-01 (15 shots), away 2024-01-08 (14 away_shots),
+    #          home 2024-01-15 (12 shots)
+    sparklines = get_stat_sparklines(df_with_match_stats, 'Arsenal')
+    assert sparklines['shots'] == [15.0, 14.0, 12.0]
+
+
+def test_get_stat_sparklines_empty_when_column_missing():
+    df = pd.DataFrame({
+        'date': ['2024-01-01'],
+        'home_team': ['Arsenal'],
+        'away_team': ['Chelsea'],
+        'home_score': [1],
+        'away_score': [0],
+    })
+    sparklines = get_stat_sparklines(df, 'Arsenal')
+    assert sparklines['shots'] == []
+    assert sparklines['corners'] == []
+
+
+def test_get_stat_sparklines_excludes_nan(df_with_match_stats):
+    df = df_with_match_stats.copy()
+    # Set Arsenal's first home match shots to NaN
+    mask = (df['home_team'] == 'Arsenal') & (df['date'] == '2024-01-01')
+    df.loc[mask, 'home_shots'] = float('nan')
+    sparklines = get_stat_sparklines(df, 'Arsenal')
+    # Only 2 non-NaN shots values remain (14.0 away, 12.0 home)
+    assert len(sparklines['shots']) == 2
+    assert sparklines['shots'] == [14.0, 12.0]
+
+
+def test_get_stat_sparklines_respects_n(df_with_match_stats):
+    sparklines = get_stat_sparklines(df_with_match_stats, 'Arsenal', n=2)
+    # Last 2 Arsenal matches: 2024-01-08 away (14 shots), 2024-01-15 home (12 shots)
+    assert sparklines['shots'] == [14.0, 12.0]
