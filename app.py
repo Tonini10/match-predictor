@@ -421,7 +421,9 @@ if predict_btn:
         st.stop()
 
     try:
-        scorelines, lam_h, lam_a = predict_scoreline(df, home_team, away_team, is_neutral=is_neutral)
+        scorelines, lam_h, lam_a = predict_scoreline(
+            df, home_team, away_team, is_neutral=is_neutral, top_n=None
+        )
     except Exception:
         scorelines, lam_h, lam_a = [], None, None
 
@@ -469,9 +471,15 @@ if predict_btn:
         if scorelines and lam_h is not None:
             import math as _math
 
-            top_h, top_a, top_p = scorelines[0]
+            # Best score matching predicted result (H/D/A)
+            def _matches_result(h, a, rk):
+                if rk == 'H': return h > a
+                if rk == 'A': return a > h
+                return h == a  # D
 
-            # Build full probability matrix 0–6 x 0–6
+            res_scores = [(h, a, p) for h, a, p in scorelines if _matches_result(h, a, res_key)]
+            best_h, best_a, best_p = res_scores[0] if res_scores else scorelines[0]
+
             _max_g = 6
             _goals = list(range(_max_g + 1))
 
@@ -483,6 +491,12 @@ if predict_btn:
 
             z_mat = [[_pmf(h, lam_h) * _pmf(a, lam_a) * 100 for a in _goals] for h in _goals]
             text_mat = [[f"{z_mat[h][a]:.1f}%" for a in _goals] for h in _goals]
+
+            _res_label_short = {
+                'H': f'{home_team} gana',
+                'D': 'Empate',
+                'A': f'{away_team} gana',
+            }.get(res_key, res_key)
 
             fig_sc = go.Figure(go.Heatmap(
                 z=z_mat,
@@ -505,27 +519,28 @@ if predict_btn:
                 ),
             ))
 
-            # Highlight most probable cell with a contrasting border shape
+            # Highlight best score for predicted result
             fig_sc.add_shape(
                 type='rect',
-                x0=top_a - 0.5, x1=top_a + 0.5,
-                y0=top_h - 0.5, y1=top_h + 0.5,
-                line=dict(color='#00d4aa', width=3),
+                x0=best_a - 0.5, x1=best_a + 0.5,
+                y0=best_h - 0.5, y1=best_h + 0.5,
+                line=dict(color=res_color, width=3),
                 fillcolor='rgba(0,0,0,0)',
                 layer='above',
             )
 
             _sc_layout = {
                 **_LAYOUT,
-                'margin': dict(l=60, r=20, t=80, b=20),
+                'margin': dict(l=60, r=20, t=90, b=20),
                 'height': 380,
                 'title': dict(
                     text=(
-                        f"<b>MARCADOR MÁS PROBABLE: "
-                        f"<span style='color:#00d4aa'>{top_h} — {top_a}</span>"
-                        f"  ({top_p*100:.1f}%)</b>"
-                        f"&nbsp;&nbsp;&nbsp;"
-                        f"<span style='font-size:11px;color:#555'>xG: {home_team} {lam_h:.2f} · {away_team} {lam_a:.2f}</span>"
+                        f"<b>Si {_res_label_short}: "
+                        f"<span style='color:{res_color}'>{best_h} — {best_a}</span>"
+                        f"  ({best_p*100:.1f}%)</b>"
+                        f"<br><span style='font-size:11px;font-weight:400;color:#555'>"
+                        f"xG esperados: {home_team} <b>{lam_h:.2f}</b> · {away_team} <b>{lam_a:.2f}</b>"
+                        f"</span>"
                     ),
                     font=dict(size=13, color='#e8eaf0'),
                     x=0,

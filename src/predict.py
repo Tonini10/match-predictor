@@ -146,4 +146,5 @@ def predict_scoreline(df, home_team, away_team, is_neutral=False, top_n=5, max_g
             scorelines.append((h, a, p))
 
     scorelines.sort(key=lambda x: x[2], reverse=True)
-    return scorelines[:top_n], lam_h, lam_a
+    # top_n=None returns all combinations
+    return (scorelines if top_n is None else scorelines[:top_n]), lam_h, lam_a
